@@ -158,15 +158,7 @@ pub fn eliminar_joya(conn: &Connection, id: i64) -> Result<usize> {
 }
 
 pub fn get_joyas(conn: &Connection, categoria: Option<&str>) -> Result<Vec<Joya>> {
-    let sql = match categoria {
-        Some(_) => "SELECT * FROM joyas WHERE categoria = ?1 ORDER BY nombre",
-        None    => "SELECT * FROM joyas ORDER BY nombre",
-    };
-
-    let param: &str = categoria.unwrap_or("");
-
-    let mut stmt = conn.prepare(sql)?;
-    let joyas = stmt.query_map(params![param], |row| {
+    fn mapear_joya(row: &rusqlite::Row) -> rusqlite::Result<Joya> {
         Ok(Joya {
             id:             row.get(0)?,
             nombre:         row.get(1)?,
@@ -182,9 +174,26 @@ pub fn get_joyas(conn: &Connection, categoria: Option<&str>) -> Result<Vec<Joya>
             creado_at:      row.get(11)?,
             actualizado_at: row.get(12)?,
         })
-    })?
-    .collect::<Result<Vec<Joya>>>()?;
-    Ok(joyas)
+    }
+
+    match categoria {
+        Some(cat) => {
+            let mut stmt = conn.prepare(
+                "SELECT * FROM joyas WHERE categoria = ?1 ORDER BY nombre"
+            )?;
+            let resultado = stmt.query_map(params![cat], mapear_joya)?
+                .collect::<Result<Vec<Joya>>>()?;
+            Ok(resultado)
+        }
+        None => {
+            let mut stmt = conn.prepare(
+                "SELECT * FROM joyas ORDER BY nombre"
+            )?;
+            let resultado = stmt.query_map([], mapear_joya)?
+                .collect::<Result<Vec<Joya>>>()?;
+            Ok(resultado)
+        }
+    }
 }
 
 pub fn get_joya_por_epc(conn: &Connection, epc: &str) -> Result<Option<Joya>> {

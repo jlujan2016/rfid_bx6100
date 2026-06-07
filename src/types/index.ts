@@ -43,3 +43,14 @@ export interface Toma {
   estado: string;
   duracion_min: number;
 }
+export interface JoyaInput {
+  nombre: string;
+  categoria: string;
+  metal: string;
+  peso_g: number;
+  precio: number;
+  ubicacion: string;
+  estado: string;
+  epc: string | null;
+  foto: string | null;
+}
