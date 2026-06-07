@@ -1,13 +1,149 @@
+mod db;
+use tauri::Manager;
+use std::sync::Mutex;
+use rusqlite::Connection;
+use tauri::State;
+use db::{JoyaInput, Joya, Toma, ResultadoTag};
+
+struct DbState(Mutex<Connection>);
+
+// ============ JOYAS ============
+
 #[tauri::command]
-fn ping() -> String {
-    "pong desde Rust 🦀".to_string()
+fn get_joyas(state: State<DbState>, categoria: Option<String>) -> Result<Vec<Joya>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::get_joyas(&conn, categoria.as_deref()).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+fn crear_joya(state: State<DbState>, input: JoyaInput) -> Result<i64, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::crear_joya(&conn, &input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn actualizar_joya(state: State<DbState>, id: i64, input: JoyaInput) -> Result<usize, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::actualizar_joya(&conn, id, &input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn eliminar_joya(state: State<DbState>, id: i64) -> Result<usize, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::eliminar_joya(&conn, id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn asignar_epc(state: State<DbState>, id: i64, epc: String) -> Result<usize, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::asignar_epc(&conn, id, &epc).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_no_sincronizadas(state: State<DbState>) -> Result<Vec<Joya>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::get_no_sincronizadas(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn marcar_sincronizada(state: State<DbState>, id: i64) -> Result<usize, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::marcar_sincronizada(&conn, id).map_err(|e| e.to_string())
+}
+
+// ============ TOMAS ============
+
+#[tauri::command]
+fn crear_toma(state: State<DbState>, ubicacion: String) -> Result<i64, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::crear_toma(&conn, &ubicacion).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn insertar_tag_toma(
+    state: State<DbState>,
+    toma_id: i64,
+    epc: String,
+    rssi: i32,
+) -> Result<i64, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::insertar_tag_toma(&conn, toma_id, &epc, rssi).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn conciliar_toma(state: State<DbState>, toma_id: i64) -> Result<Vec<ResultadoTag>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::conciliar_toma(&conn, toma_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_tomas(state: State<DbState>) -> Result<Vec<Toma>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::get_tomas(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn insertar_datos_prueba(state: State<DbState>) -> Result<String, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    // Primero limpia datos anteriores de prueba
+    conn.execute_batch("DELETE FROM joyas WHERE nombre LIKE 'PRUEBA%'")
+        .map_err(|e| e.to_string())?;
+
+    // Joyas de prueba — reemplaza los EPC con los que lee tu lector real
+    let joyas = vec![
+        ("PRUEBA Anillo solitario oro", "Anillo", "Oro 18k", 3.2, 2400.0, "Tienda", "En stock", Some("02071601")),
+        ("PRUEBA Collar perlas", "Collar", "Plata 925", 12.8, 890.0, "Tienda", "En stock", Some("02071501")),
+        ("PRUEBA Aretes argolla", "Aretes", "Oro blanco 14k", 1.9, 1150.0, "Almacen", "En stock", Some("00447101")),
+        ("PRUEBA Pulsera tennis", "Pulsera", "Oro 18k", 8.5, 4500.0, "Almacen", "En stock", None),  // Sin EPC asignado
+        ("PRUEBA Dije corazon", "Dije", "Oro 18k", 2.1, 680.0, "Tienda", "En stock", Some("02071701")),
+    ];
+
+    for (nombre, cat, metal, peso, precio, ubic, estado, epc) in &joyas {
+        conn.execute(
+            "INSERT OR IGNORE INTO joyas (nombre, categoria, metal, peso_g, precio, ubicacion, estado, epc)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![nombre, cat, metal, peso, precio, ubic, estado, epc],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    Ok(format!("{} joyas de prueba insertadas", joyas.len()))
+}
+
+// ============ SETUP ============
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![ping])
+        .setup(|app| {
+            let db_path = app
+                .path()
+                .app_data_dir()
+                .expect("No se pudo obtener app_data_dir")
+                .join("rfid_joyas.db");
+
+            let conn = Connection::open(&db_path)
+                .expect("No se pudo abrir la base de datos");
+
+            db::init(&conn).expect("Error inicializando tablas");
+            app.manage(DbState(Mutex::new(conn)));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_joyas,
+            crear_joya,
+            actualizar_joya,
+            eliminar_joya,
+            asignar_epc,
+            get_no_sincronizadas,
+            marcar_sincronizada,
+            crear_toma,
+            insertar_tag_toma,
+            conciliar_toma,
+            get_tomas,
+            insertar_datos_prueba,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
