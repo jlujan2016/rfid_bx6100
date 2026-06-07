@@ -34,7 +34,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(webView)
         
         // Cargar la aplicación Tauri
-        webView.loadUrl("http://192.168.1.48:1420")
+        webView.loadUrl("http://192.168.100.95:1420")
         
         Log.e("RFID_TEST", "✅ WebView configurada correctamente")
     }
