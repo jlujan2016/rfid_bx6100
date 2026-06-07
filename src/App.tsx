@@ -1,203 +1,311 @@
-import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";  // ← Esta es la correcta
-import "./App.css";
+import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 interface RFIDTag {
   epc: string;
   rssi: number;
+  count: number;
 }
 
 declare global {
   interface Window {
     AndroidRFID: {
-      scanRFID: (timeout: number) => string;
+      scanRFID: (duration: number) => string;
+      setPower: (power: number) => string;
+      getPower: () => string;
     };
-    __TAURI__?: any;
-    __TAURI_INTERNALS__?: any;
   }
 }
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
-  const [rfidTags, setRfidTags] = useState<RFIDTag[]>([]);
+  const [rustMsg, setRustMsg] = useState("");
+  const [rfidTags, setRfidTags] = useState<Map<string, RFIDTag>>(new Map());
+  const [rfidMsg, setRfidMsg] = useState("");
+  const [rfidReady, setRfidReady] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
-  const [rfidError, setRfidError] = useState<string | null>(null);
-  const [tauriReady, setTauriReady] = useState(false);
-  const [androidRfidReady, setAndroidRfidReady] = useState(false);
+  const [power, setPower] = useState(30);
+  const [powerMsg, setPowerMsg] = useState("");
+  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Verificar disponibilidad de las APIs
   useEffect(() => {
-    const checkAPIs = async () => {
-      // Verificar Tauri (para greet)
-      try {
-        // Verificar si estamos en entorno Tauri
-        const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
-        
-        if (isTauri) {
-          // Probar invoke con una función simple
-          const testInvoke = typeof invoke !== 'undefined';
-          if (testInvoke) {
-            setTauriReady(true);
-            console.log("✅ Tauri está listo");
-          } else {
-            console.warn("⚠️ Tauri detectado pero invoke no disponible");
-          }
-        } else {
-          console.warn("⚠️ Tauri no detectado en este entorno");
-          setTauriReady(false);
-        }
-      } catch (error) {
-        console.warn("⚠️ Error detectando Tauri:", error);
-        setTauriReady(false);
+    const check = setInterval(() => {
+      if (window.AndroidRFID) {
+        setRfidReady(true);
+        clearInterval(check);
+        // Leer potencia actual al iniciar
+        loadCurrentPower();
       }
-      
-      // Verificar AndroidRFID (para escáner)
-      if (window.AndroidRFID && typeof window.AndroidRFID.scanRFID === 'function') {
-        setAndroidRfidReady(true);
-        console.log("✅ AndroidRFID está listo");
-      } else {
-        console.warn("⚠️ AndroidRFID no disponible");
-      }
-    };
-    
-    checkAPIs();
+    }, 300);
+    return () => clearInterval(check);
   }, []);
 
-  // Función greet usando Tauri
-  async function greet() {
-    if (!tauriReady) {
-      setGreetMsg("⚠️ Tauri no está disponible. Verifica la instalación.");
-      console.error("Tauri no está listo para usar invoke");
-      return;
-    }
-    
-    if (!name.trim()) {
-      setGreetMsg("Por favor ingresa un nombre");
-      return;
-    }
-    
+  function loadCurrentPower() {
     try {
-      console.log("Llamando a greet con nombre:", name);
-      const message = await invoke("greet", { name });
-      setGreetMsg(message as string);
-      console.log("Respuesta de greet:", message);
-    } catch (error) {
-      console.error("Error en greet:", error);
-      setGreetMsg(`Error: ${error}`);
+      const raw = JSON.parse(window.AndroidRFID.getPower());
+      if (raw.success) setPower(raw.readPower);
+    } catch (e) {
+      console.error("Error leyendo potencia:", e);
     }
   }
 
-  // Función para escanear RFID (usando Android directamente)
-  async function scanRFID() {
-    if (!androidRfidReady) {
-      setRfidError("AndroidRFID no está disponible");
-      return;
-    }
-    
-    setIsScanning(true);
-    setRfidError(null);
-    
+  function applyPower(value: number) {
     try {
-      const result = window.AndroidRFID.scanRFID(200);
-      console.log("Resultado RFID:", result);
-      
-      const data = JSON.parse(result);
-      
-      if (data.success) {
-        setRfidTags(data.tags);
-        console.log(`✅ Encontrados ${data.count} tags`);
+      const raw = JSON.parse(window.AndroidRFID.setPower(value));
+      if (raw.success) {
+        setPower(raw.power);
+        setPowerMsg(`✅ Potencia aplicada: ${raw.power} dBm`);
       } else {
-        setRfidError(data.error || "Error desconocido");
+        setPowerMsg(`❌ ${raw.error}`);
       }
-    } catch (error) {
-      console.error("Error en scanRFID:", error);
-      setRfidError(error as string);
-    } finally {
-      setIsScanning(false);
+    } catch (e) {
+      setPowerMsg("Error: " + String(e));
     }
+    setTimeout(() => setPowerMsg(""), 3000);
+  }
+
+  async function probarRust() {
+    try {
+      const resp = await invoke<string>("ping");
+      setRustMsg(resp);
+    } catch (e) {
+      setRustMsg("Error: " + String(e));
+    }
+  }
+
+  function startScan() {
+    if (!rfidReady) return;
+    setIsScanning(true);
+    setRfidMsg("");
+
+    scanIntervalRef.current = setInterval(() => {
+      try {
+        const raw = window.AndroidRFID.scanRFID(200);
+        const data = JSON.parse(raw);
+
+        if (data.success && data.tags.length > 0) {
+          setRfidTags(prev => {
+            const next = new Map(prev);
+            for (const tag of data.tags) {
+              const existing = next.get(tag.epc);
+              next.set(tag.epc, {
+                epc: tag.epc,
+                rssi: tag.rssi,
+                count: existing ? existing.count + 1 : 1,
+              });
+            }
+            return next;
+          });
+        } else if (!data.success) {
+          setRfidMsg(`❌ ${data.error}`);
+        }
+      } catch (e) {
+        setRfidMsg("Error: " + String(e));
+      }
+    }, 300);
+  }
+
+  function stopScan() {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    setIsScanning(false);
+    setRfidMsg(`✅ Detenido — ${rfidTags.size} tags únicos`);
+  }
+
+  function clearTags() {
+    setRfidTags(new Map());
+    setRfidMsg("");
+  }
+
+  const tagList = Array.from(rfidTags.values())
+    .sort((a, b) => b.count - a.count);
+
+  // Color según nivel de potencia
+  function powerColor(p: number) {
+    if (p <= 10) return "#4CAF50";
+    if (p <= 20) return "#FF9800";
+    return "#f44336";
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React + RFID</h1>
+    <div style={{ padding: 24 }}>
+      <h1 style={{ textAlign: "center" }}>📡 Lector UHF-RFID BX6100</h1>
 
-      <div className="status">
-        <p>🔷 Estado Tauri: {tauriReady ? "✅ Conectado" : "⏳ No disponible"}</p>
-        <p>📡 Estado RFID: {androidRfidReady ? "✅ Listo" : "⏳ No disponible"}</p>
+      {/* Test Rust */}
+      <div style={{ marginBottom: 24, textAlign: "center" }}>
+        <button onClick={probarRust}
+          style={{ padding: "10px 20px", fontSize: 14 }}>
+          🦀 Test Rust
+        </button>
+        {rustMsg && <p style={{ color: "green" }}>{rustMsg}</p>}
       </div>
 
-      {/* Sección Greet */}
-      <form className="row" onSubmit={(e) => { e.preventDefault(); greet(); }}>
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-          value={name}
-        />
-        <button type="submit" disabled={!tauriReady}>
-          Greet
-        </button>
-      </form>
-      {greetMsg && <p className="greet-message">{greetMsg}</p>}
+      {/* Control de potencia */}
+      <div style={{
+        border: "1px solid #ddd",
+        borderRadius: 8,
+        padding: 16,
+        marginBottom: 24
+      }}>
+        <h3 style={{ margin: "0 0 12px" }}>
+          ⚡ Potencia de lectura
+          <span style={{
+            marginLeft: 12,
+            color: powerColor(power),
+            fontWeight: "bold"
+          }}>
+            {power} dBm
+          </span>
+        </h3>
 
-      {/* Sección RFID */}
-      <div style={{ marginTop: "40px", borderTop: "2px solid #ccc", paddingTop: "20px" }}>
-        <h2>📡 Escáner RFID</h2>
-        
-        <button 
-          onClick={scanRFID} 
-          disabled={isScanning || !androidRfidReady}
+        {/* Slider */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+          <span style={{ fontSize: 12, color: "#666" }}>5</span>
+          <input
+            type="range"
+            min={5}
+            max={30}
+            value={power}
+            onChange={e => setPower(Number(e.target.value))}
+            disabled={isScanning}
+            style={{ flex: 1 }}
+          />
+          <span style={{ fontSize: 12, color: "#666" }}>30</span>
+          <button
+            onClick={() => applyPower(power)}
+            disabled={isScanning}
+            style={{
+              padding: "6px 14px",
+              backgroundColor: "#2196F3",
+              color: "white",
+              border: "none",
+              borderRadius: 4,
+            }}>
+            Aplicar
+          </button>
+        </div>
+
+        {/* Botones rápidos */}
+        <div style={{ display: "flex", gap: 8 }}>
+          {[10, 15, 20, 25, 30].map(p => (
+            <button
+              key={p}
+              onClick={() => { setPower(p); applyPower(p); }}
+              disabled={isScanning}
+              style={{
+                flex: 1,
+                padding: "6px 0",
+                backgroundColor: power === p ? powerColor(p) : "#f0f0f0",
+                color: power === p ? "white" : "#333",
+                border: "none",
+                borderRadius: 4,
+                fontWeight: power === p ? "bold" : "normal",
+                fontSize: 13,
+              }}>
+              {p}
+            </button>
+          ))}
+        </div>
+
+        {powerMsg && (
+          <p style={{ margin: "8px 0 0", fontSize: 13, color: "green" }}>
+            {powerMsg}
+          </p>
+        )}
+      </div>
+
+      {/* Controles de escaneo */}
+      <div style={{ display: "flex", gap: 8, justifyContent: "center", marginBottom: 16 }}>
+        <button
+          onClick={startScan}
+          disabled={isScanning || !rfidReady}
           style={{
-            backgroundColor: isScanning ? "#ccc" : "#4CAF50",
+            padding: "12px 24px",
+            fontSize: 16,
+            backgroundColor: "#4CAF50",
             color: "white",
-            padding: "10px 20px",
-            margin: "10px 0",
             border: "none",
-            borderRadius: "4px",
-            cursor: isScanning ? "not-allowed" : "pointer"
-          }}
-        >
-          {isScanning ? "🔍 Escaneando..." : "🔘 Escanear RFID"}
+            borderRadius: 4,
+            opacity: isScanning ? 0.5 : 1,
+          }}>
+          ▶ Iniciar
         </button>
 
-        {rfidError && (
-          <div style={{ backgroundColor: "#ff4444", color: "white", padding: "10px", borderRadius: "4px", margin: "10px 0" }}>
-            ❌ Error: {rfidError}
-          </div>
-        )}
+        <button
+          onClick={stopScan}
+          disabled={!isScanning}
+          style={{
+            padding: "12px 24px",
+            fontSize: 16,
+            backgroundColor: "#f44336",
+            color: "white",
+            border: "none",
+            borderRadius: 4,
+            opacity: !isScanning ? 0.5 : 1,
+          }}>
+          ⏹ Detener
+        </button>
 
-        {rfidTags.length > 0 && (
-          <div style={{ marginTop: "20px" }}>
-            <h3>📋 Tags Encontrados ({rfidTags.length})</h3>
-            <div style={{ maxHeight: "400px", overflowY: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "10px" }}>
-                <thead>
-                  <tr style={{ backgroundColor: "#f2f2f2", position: "sticky", top: 0 }}>
-                    <th style={{ border: "1px solid #ddd", padding: "8px", textAlign: "left" }}>#</th>
-                    <th style={{ border: "1px solid #ddd", padding: "8px", textAlign: "left" }}>EPC (Hex)</th>
-                    <th style={{ border: "1px solid #ddd", padding: "8px", textAlign: "left" }}>RSSI (dBm)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rfidTags.map((tag, index) => (
-                    <tr key={index}>
-                      <td style={{ border: "1px solid #ddd", padding: "8px" }}>{index + 1}</td>
-                      <td style={{ border: "1px solid #ddd", padding: "8px", fontFamily: "monospace", fontSize: "12px" }}>
-                        {tag.epc}
-                      </td>
-                      <td style={{ border: "1px solid #ddd", padding: "8px", textAlign: "center" }}>
-                        {tag.rssi}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        <button
+          onClick={clearTags}
+          disabled={isScanning}
+          style={{
+            padding: "12px 24px",
+            fontSize: 16,
+            border: "1px solid #ccc",
+            borderRadius: 4,
+            opacity: isScanning ? 0.5 : 1,
+          }}>
+          🗑 Limpiar
+        </button>
       </div>
-    </main>
+
+      {isScanning && (
+        <p style={{ textAlign: "center", color: "#2196F3" }}>
+          🔍 Escaneando a {power} dBm — {rfidTags.size} tags únicos
+        </p>
+      )}
+
+      {rfidMsg && (
+        <p style={{ textAlign: "center" }}>{rfidMsg}</p>
+      )}
+
+      {/* Tabla de tags */}
+      {tagList.length > 0 && (
+        <div style={{ maxHeight: 400, overflowY: "auto", marginTop: 16 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ backgroundColor: "#f2f2f2", position: "sticky", top: 0 }}>
+                <th style={{ border: "1px solid #ddd", padding: 8 }}>#</th>
+                <th style={{ border: "1px solid #ddd", padding: 8 }}>EPC</th>
+                <th style={{ border: "1px solid #ddd", padding: 8 }}>RSSI</th>
+                <th style={{ border: "1px solid #ddd", padding: 8 }}>Lecturas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tagList.map((tag, i) => (
+                <tr key={tag.epc}
+                  style={{ backgroundColor: i % 2 === 0 ? "white" : "#fafafa" }}>
+                  <td style={{ border: "1px solid #ddd", padding: 8, textAlign: "center" }}>
+                    {i + 1}
+                  </td>
+                  <td style={{ border: "1px solid #ddd", padding: 8, fontFamily: "monospace", fontSize: 12 }}>
+                    {tag.epc}
+                  </td>
+                  <td style={{ border: "1px solid #ddd", padding: 8, textAlign: "center" }}>
+                    {tag.rssi}
+                  </td>
+                  <td style={{ border: "1px solid #ddd", padding: 8, textAlign: "center", fontWeight: "bold", color: "#2196F3" }}>
+                    {tag.count}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 

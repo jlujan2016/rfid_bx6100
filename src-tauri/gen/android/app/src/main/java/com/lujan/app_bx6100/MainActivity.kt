@@ -4,54 +4,51 @@ import android.os.Bundle
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 
-class MainActivity : AppCompatActivity() {
-
-    private lateinit var webView: WebView
+class MainActivity : TauriActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        Log.e("RFID_TEST", "MAIN ACTIVITY EJECUTADA")
-
-        Toast.makeText(
-            this,
-            "Iniciando aplicación...",
-            Toast.LENGTH_LONG
-        ).show()
-
-        // Crear WebView manualmente
-        webView = WebView(this)
-        webView.webViewClient = WebViewClient()
-        webView.settings.javaScriptEnabled = true
-        
-        // Agregar interfaz RFID
-        webView.addJavascriptInterface(RFIDInterface(), "AndroidRFID")
-        
-        setContentView(webView)
-        
-        // Cargar la aplicación Tauri
-        webView.loadUrl("http://192.168.100.95:1420")
-        
-        Log.e("RFID_TEST", "✅ WebView configurada correctamente")
+        Log.d("RFID", "MainActivity iniciada")
     }
 
-    inner class RFIDInterface {
-        
-        @JavascriptInterface
-        fun scanRFID(duration: Int = 200): String {
-            Log.e("RFID_TEST", "📡 Escaneando RFID desde JavaScript...")
-            return try {
-                val result = RFIDTest.scanTagsJson(duration)
-                Log.e("RFID_TEST", "📦 Resultado: $result")
-                result
-            } catch (e: Exception) {
-                Log.e("RFID_TEST", "❌ Error: ${e.message}")
-                "{\"success\":false,\"error\":\"${e.message}\",\"tags\":[],\"count\":0}"
-            }
+    // Tauri 2 expone este método para acceder al WebView interno
+    override fun onWebViewCreate(webView: WebView) {
+        super.onWebViewCreate(webView)
+        // Aquí inyectamos nuestra interfaz sobre el WebView de Tauri
+        webView.addJavascriptInterface(RFIDInterface(), "AndroidRFID")
+        Log.d("RFID", "JavascriptInterface inyectado en WebView de Tauri")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        try {
+            com.handheld.uhfr.UHFRManager.getInstance()?.close()
+        } catch (e: Throwable) {
+            Log.e("RFID", "Error cerrando UHF: ${e.message}")
         }
     }
+
+inner class RFIDInterface {
+
+    @JavascriptInterface
+    fun scanRFID(duration: Int): String {
+        return RFIDTest.scanTagsJson(duration)
+    }
+
+    @JavascriptInterface
+    fun scanRFIDWithSession(duration: Int, sessionId: String): String {
+        return RFIDTest.scanTagsJson(duration)
+    }
+
+    @JavascriptInterface
+    fun setPower(power: Int): String {
+        return RFIDTest.setPower(power)
+    }
+
+    @JavascriptInterface
+    fun getPower(): String {
+        return RFIDTest.getPower()
+    }
+}
 }
