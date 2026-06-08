@@ -143,7 +143,14 @@ pub fn run() {
             conciliar_toma,
             get_tomas,
             insertar_datos_prueba,
+            buscar_joya,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[tauri::command]
+fn buscar_joya(state: State<DbState>, query: String) -> Result<Vec<db::Joya>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::buscar_joya(&conn, &query).map_err(|e| e.to_string())
 }

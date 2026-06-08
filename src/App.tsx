@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Inventario from "./pages/Inventario";
 import Escanear from "./pages/Escanear";
@@ -6,8 +6,9 @@ import Resultados from "./pages/Resultados";
 import Historial from "./pages/Historial";
 import Joyas from "./pages/Joyas";
 import { ResultadoTag } from "./types";
+import Localizar from "./pages/Localizar";
 
-type Tab = "inventario" | "escanear" | "joyas" | "historial";
+type Tab = "inventario" | "escanear" | "joyas" | "historial" | "localizar";
 type Pantalla = "main" | "resultados";
 
 export default function App() {
@@ -54,6 +55,7 @@ export default function App() {
     { id: "escanear",   label: "Escanear",   icon: "📡" },
     { id: "joyas",      label: "Joyas",      icon: "💎" },
     { id: "historial",  label: "Historial",  icon: "🕐" },
+    { id: "localizar",  label: "Localizar",  icon: "🎯" },
   ];
 
   return (
@@ -99,6 +101,7 @@ export default function App() {
       {tab === "historial" && (
         <Historial />
       )}
+      {tab === "localizar" && <Localizar />}
 
       {/* Tab bar fijo abajo */}
       <div style={{

@@ -11,13 +11,13 @@ pub struct Joya {
     pub metal: String,
     pub peso_g: f64,
     pub precio: f64,
-    pub ubicacion: String,   // "Tienda" | "Almacen" | "Ambos"
-    pub estado: String,      // "En stock" | "Vendido" | "Reservado"
-    pub epc: Option<String>, // puede ser null
+    pub ubicacion: String,
+    pub estado: String,
+    pub epc: Option<String>,
     pub foto: Option<String>,
     pub creado_at: String,
     pub actualizado_at: String,
-    pub sincronizado: bool,  // false = pendiente de sync
+    pub sincronizado: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -59,7 +59,7 @@ pub struct Toma {
     pub total_ok: i64,
     pub total_faltantes: i64,
     pub total_no_esperadas: i64,
-    pub estado: String,      // "Local" | "Enviado"
+    pub estado: String,
     pub duracion_min: i64,
 }
 
@@ -69,7 +69,7 @@ pub struct ResultadoTag {
     pub nombre: Option<String>,
     pub categoria: Option<String>,
     pub ubicacion: Option<String>,
-    pub estado_conciliacion: String, // "OK" | "Faltante" | "No esperado"
+    pub estado_conciliacion: String,
 }
 
 // ============ SETUP ============
@@ -119,6 +119,26 @@ pub fn init(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+// ── Función compartida — ahora al nivel del módulo ──────────────────
+fn mapear_joya(row: &rusqlite::Row) -> rusqlite::Result<Joya> {
+    Ok(Joya {
+        id:             row.get(0)?,
+        nombre:         row.get(1)?,
+        categoria:      row.get(2)?,
+        metal:          row.get(3)?,
+        peso_g:         row.get(4)?,
+        precio:         row.get(5)?,
+        ubicacion:      row.get(6)?,
+        estado:         row.get(7)?,
+        epc:            row.get(8)?,
+        foto:           row.get(9)?,
+        sincronizado:   row.get::<_, i64>(10)? == 1,
+        creado_at:      row.get(11)?,
+        actualizado_at: row.get(12)?,
+    })
+}
+// ────────────────────────────────────────────────────────────────────
+
 // ============ JOYAS ============
 
 pub fn crear_joya(conn: &Connection, input: &JoyaInput) -> Result<i64> {
@@ -158,24 +178,6 @@ pub fn eliminar_joya(conn: &Connection, id: i64) -> Result<usize> {
 }
 
 pub fn get_joyas(conn: &Connection, categoria: Option<&str>) -> Result<Vec<Joya>> {
-    fn mapear_joya(row: &rusqlite::Row) -> rusqlite::Result<Joya> {
-        Ok(Joya {
-            id:             row.get(0)?,
-            nombre:         row.get(1)?,
-            categoria:      row.get(2)?,
-            metal:          row.get(3)?,
-            peso_g:         row.get(4)?,
-            precio:         row.get(5)?,
-            ubicacion:      row.get(6)?,
-            estado:         row.get(7)?,
-            epc:            row.get(8)?,
-            foto:           row.get(9)?,
-            sincronizado:   row.get::<_, i64>(10)? == 1,
-            creado_at:      row.get(11)?,
-            actualizado_at: row.get(12)?,
-        })
-    }
-
     match categoria {
         Some(cat) => {
             let mut stmt = conn.prepare(
@@ -198,23 +200,7 @@ pub fn get_joyas(conn: &Connection, categoria: Option<&str>) -> Result<Vec<Joya>
 
 pub fn get_joya_por_epc(conn: &Connection, epc: &str) -> Result<Option<Joya>> {
     let mut stmt = conn.prepare("SELECT * FROM joyas WHERE epc = ?1")?;
-    let mut rows = stmt.query_map(params![epc], |row| {
-        Ok(Joya {
-            id:             row.get(0)?,
-            nombre:         row.get(1)?,
-            categoria:      row.get(2)?,
-            metal:          row.get(3)?,
-            peso_g:         row.get(4)?,
-            precio:         row.get(5)?,
-            ubicacion:      row.get(6)?,
-            estado:         row.get(7)?,
-            epc:            row.get(8)?,
-            foto:           row.get(9)?,
-            sincronizado:   row.get::<_, i64>(10)? == 1,
-            creado_at:      row.get(11)?,
-            actualizado_at: row.get(12)?,
-        })
-    })?;
+    let mut rows = stmt.query_map(params![epc], mapear_joya)?;
     Ok(rows.next().transpose()?)
 }
 
@@ -231,24 +217,8 @@ pub fn get_no_sincronizadas(conn: &Connection) -> Result<Vec<Joya>> {
     let mut stmt = conn.prepare(
         "SELECT * FROM joyas WHERE sincronizado = 0 ORDER BY actualizado_at"
     )?;
-    let joyas = stmt.query_map([], |row| {
-        Ok(Joya {
-            id:             row.get(0)?,
-            nombre:         row.get(1)?,
-            categoria:      row.get(2)?,
-            metal:          row.get(3)?,
-            peso_g:         row.get(4)?,
-            precio:         row.get(5)?,
-            ubicacion:      row.get(6)?,
-            estado:         row.get(7)?,
-            epc:            row.get(8)?,
-            foto:           row.get(9)?,
-            sincronizado:   row.get::<_, i64>(10)? == 1,
-            creado_at:      row.get(11)?,
-            actualizado_at: row.get(12)?,
-        })
-    })?
-    .collect::<Result<Vec<Joya>>>()?;
+    let joyas = stmt.query_map([], mapear_joya)?
+        .collect::<Result<Vec<Joya>>>()?;
     Ok(joyas)
 }
 
@@ -284,7 +254,6 @@ pub fn insertar_tag_toma(conn: &Connection, toma_id: i64, epc: &str, rssi: i32) 
 }
 
 pub fn conciliar_toma(conn: &Connection, toma_id: i64) -> Result<Vec<ResultadoTag>> {
-    // Tags escaneados vs joyas registradas
     let mut stmt = conn.prepare("
         SELECT
             tt.epc,
@@ -303,16 +272,15 @@ pub fn conciliar_toma(conn: &Connection, toma_id: i64) -> Result<Vec<ResultadoTa
 
     let mut resultados: Vec<ResultadoTag> = stmt.query_map(params![toma_id], |row| {
         Ok(ResultadoTag {
-            epc:                  row.get(0)?,
-            nombre:               row.get(1)?,
-            categoria:            row.get(2)?,
-            ubicacion:            row.get(3)?,
-            estado_conciliacion:  row.get(4)?,
+            epc:                 row.get(0)?,
+            nombre:              row.get(1)?,
+            categoria:           row.get(2)?,
+            ubicacion:           row.get(3)?,
+            estado_conciliacion: row.get(4)?,
         })
     })?
     .collect::<Result<Vec<ResultadoTag>>>()?;
 
-    // Joyas faltantes (registradas pero no escaneadas en esta toma)
     let mut stmt2 = conn.prepare("
         SELECT j.epc, j.nombre, j.categoria, j.ubicacion
         FROM joyas j
@@ -324,22 +292,21 @@ pub fn conciliar_toma(conn: &Connection, toma_id: i64) -> Result<Vec<ResultadoTa
 
     let faltantes = stmt2.query_map(params![toma_id], |row| {
         Ok(ResultadoTag {
-            epc:                  row.get(0)?,
-            nombre:               row.get(1)?,
-            categoria:            row.get(2)?,
-            ubicacion:            row.get(3)?,
-            estado_conciliacion:  "Faltante".to_string(),
+            epc:                 row.get(0)?,
+            nombre:              row.get(1)?,
+            categoria:           row.get(2)?,
+            ubicacion:           row.get(3)?,
+            estado_conciliacion: "Faltante".to_string(),
         })
     })?
     .collect::<Result<Vec<ResultadoTag>>>()?;
 
     resultados.extend(faltantes);
 
-    // Actualizar contadores en la toma
-    let ok = resultados.iter().filter(|r| r.estado_conciliacion == "OK").count() as i64;
-    let faltantes_count = resultados.iter().filter(|r| r.estado_conciliacion == "Faltante").count() as i64;
-    let no_esperadas = resultados.iter().filter(|r| r.estado_conciliacion == "No esperado").count() as i64;
-    let total = resultados.len() as i64;
+    let ok            = resultados.iter().filter(|r| r.estado_conciliacion == "OK").count() as i64;
+    let faltantes_cnt = resultados.iter().filter(|r| r.estado_conciliacion == "Faltante").count() as i64;
+    let no_esperadas  = resultados.iter().filter(|r| r.estado_conciliacion == "No esperado").count() as i64;
+    let total         = resultados.len() as i64;
 
     conn.execute(
         "UPDATE tomas SET
@@ -348,7 +315,7 @@ pub fn conciliar_toma(conn: &Connection, toma_id: i64) -> Result<Vec<ResultadoTa
             total_faltantes = ?3,
             total_no_esperadas = ?4
          WHERE id = ?5",
-        params![total, ok, faltantes_count, no_esperadas, toma_id],
+        params![total, ok, faltantes_cnt, no_esperadas, toma_id],
     )?;
 
     Ok(resultados)
@@ -376,4 +343,19 @@ pub fn get_tomas(conn: &Connection) -> Result<Vec<Toma>> {
     })?
     .collect::<Result<Vec<Toma>>>()?;
     Ok(tomas)
+}
+
+pub fn buscar_joya(conn: &Connection, query: &str) -> Result<Vec<Joya>> {
+    let patron = format!("%{}%", query.to_lowercase());
+    let mut stmt = conn.prepare(
+        "SELECT * FROM joyas
+         WHERE LOWER(nombre) LIKE ?1
+         OR epc LIKE ?2
+         ORDER BY nombre
+         LIMIT 10"
+    )?;
+    // ── ahora mapear_joya es visible aquí ──
+    let resultado = stmt.query_map(params![patron, patron], mapear_joya)?
+        .collect::<Result<Vec<Joya>>>()?;
+    Ok(resultado)
 }
