@@ -1,4 +1,5 @@
 mod db;
+mod excel;
 use tauri::Manager;
 use std::sync::Mutex;
 use rusqlite::Connection;
@@ -116,6 +117,7 @@ fn insertar_datos_prueba(state: State<DbState>) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init()) 
         .setup(|app| {
             let db_path = app
                 .path()
@@ -144,9 +146,79 @@ pub fn run() {
             get_tomas,
             insertar_datos_prueba,
             buscar_joya,
+            importar_excel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[tauri::command]
+async fn importar_excel(
+    app: tauri::AppHandle,
+    state: State<'_, DbState>,
+) -> Result<excel::ImportResult, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let ruta = app
+        .dialog()
+        .file()
+        .add_filter("Excel", &["xlsx"])
+        .blocking_pick_file()
+        .ok_or("No se seleccionó archivo")?;
+
+    let ruta_str = ruta.to_string();
+
+    let filas = excel::leer_excel(&ruta_str)?;
+
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    let mut resultado = excel::ImportResult {
+        insertadas: 0,
+        duplicadas: 0,
+        errores: Vec::new(),
+    };
+
+    for fila in &filas {
+        // Verificar si EPC ya existe
+        if let Some(epc) = &fila.epc {
+            match db::get_joya_por_epc(&conn, epc) {
+                Ok(Some(existente)) => {
+                    resultado.duplicadas += 1;
+                    resultado.errores.push(format!(
+                        "EPC {} ya existe en '{}'",
+                        epc, existente.nombre
+                    ));
+                    continue;
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    resultado.errores.push(format!("Error verificando EPC: {}", e));
+                    continue;
+                }
+            }
+        }
+
+        let input = db::JoyaInput {
+            nombre:    fila.nombre.clone(),
+            categoria: fila.categoria.clone(),
+            metal:     fila.metal.clone(),
+            peso_g:    fila.peso_g,
+            precio:    fila.precio,
+            ubicacion: fila.ubicacion.clone(),
+            estado:    fila.estado.clone(),
+            epc:       fila.epc.clone(),
+            foto:      None,
+        };
+
+        match db::crear_joya(&conn, &input) {
+            Ok(_)  => resultado.insertadas += 1,
+            Err(e) => resultado.errores.push(
+                format!("Error insertando '{}': {}", fila.nombre, e)
+            ),
+        }
+    }
+
+    Ok(resultado)
 }
 
 #[tauri::command]

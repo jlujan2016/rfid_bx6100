@@ -19,6 +19,8 @@ export default function Joyas() {
   const [escaneandoEpc, setEscaneandoEpc] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [importando, setImportando] = useState(false);
+  const [msgImport, setMsgImport] = useState<string | null>(null);
 
   const categorias = ["Todas", "Anillo", "Collar", "Aretes", "Pulsera", "Dije"];
 
@@ -48,6 +50,35 @@ export default function Joyas() {
       console.error(e);
     } finally {
       setCargando(false);
+    }
+  }
+
+  async function importarExcel() {
+    setImportando(true);
+    setMsgImport(null);
+    try {
+      const result = await invoke<{
+        insertadas: number;
+        duplicadas: number;
+        errores: string[];
+      }>("importar_excel");
+
+      let msg = `✅ ${result.insertadas} joyas importadas`;
+      if (result.duplicadas > 0) {
+        msg += ` · ⚠️ ${result.duplicadas} EPC duplicados`;
+      }
+      setMsgImport(msg);
+
+      if (result.errores.length > 0) {
+        console.warn("Errores importación:", result.errores);
+      }
+
+      await cargarJoyas();
+    } catch (e) {
+      setMsgImport("❌ " + String(e));
+    } finally {
+      setImportando(false);
+      setTimeout(() => setMsgImport(null), 5000);
     }
   }
 
@@ -157,11 +188,8 @@ export default function Joyas() {
           </button>
         </div>
 
-        {error && (
-          <div style={styles.error}>{error}</div>
-        )}
+        {error && <div style={styles.error}>{error}</div>}
 
-        {/* Escanear EPC */}
         <button
           onClick={escanearEpc}
           disabled={escaneandoEpc}
@@ -179,7 +207,6 @@ export default function Joyas() {
           <span>›</span>
         </button>
 
-        {/* Nombre */}
         <div style={styles.campo}>
           <label style={styles.label}>Nombre *</label>
           <input
@@ -190,7 +217,6 @@ export default function Joyas() {
           />
         </div>
 
-        {/* Categoría y Metal */}
         <div style={{ display: "flex", gap: 12 }}>
           <div style={{ ...styles.campo, flex: 1 }}>
             <label style={styles.label}>Categoría</label>
@@ -215,7 +241,6 @@ export default function Joyas() {
           </div>
         </div>
 
-        {/* Peso y Precio */}
         <div style={{ display: "flex", gap: 12 }}>
           <div style={{ ...styles.campo, flex: 1 }}>
             <label style={styles.label}>Peso (g)</label>
@@ -237,7 +262,6 @@ export default function Joyas() {
           </div>
         </div>
 
-        {/* Ubicación */}
         <div style={styles.campo}>
           <label style={styles.label}>Ubicación</label>
           <div style={{ display: "flex", gap: 8 }}>
@@ -262,7 +286,6 @@ export default function Joyas() {
           </div>
         </div>
 
-        {/* Estado */}
         <div style={styles.campo}>
           <label style={styles.label}>Estado</label>
           <div style={{ display: "flex", gap: 8 }}>
@@ -294,24 +317,77 @@ export default function Joyas() {
   return (
     <div style={{ padding: 16, maxWidth: 480, margin: "0 auto" }}>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      {/* Header con botón importar */}
+      <div style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 16,
+      }}>
         <div>
           <h2 style={{ margin: 0 }}>Joyas</h2>
-          <p style={{ margin: 0, fontSize: 12, color: "#666" }}>{joyas.length} piezas</p>
+          <p style={{ margin: 0, fontSize: 12, color: "#666" }}>
+            {joyas.length} piezas
+          </p>
         </div>
-        <button onClick={() => abrirForm()} style={styles.btnAgregar}>+</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={importarExcel}
+            disabled={importando}
+            style={{
+              padding: "8px 12px",
+              backgroundColor: "#e8f5e9",
+              color: "#2e7d32",
+              border: "none",
+              borderRadius: 8,
+              fontSize: 13,
+              cursor: "pointer",
+              opacity: importando ? 0.6 : 1,
+            }}
+          >
+            {importando ? "⏳" : "📥 Importar"}
+          </button>
+          <button onClick={() => abrirForm()} style={styles.btnAgregar}>
+            +
+          </button>
+        </div>
       </div>
+
+      {/* Mensaje importación */}
+      {msgImport && (
+        <div style={{
+          padding: 12,
+          borderRadius: 8,
+          backgroundColor: msgImport.startsWith("✅") ? "#e8f5e9" : "#ffebee",
+          color: msgImport.startsWith("✅") ? "#2e7d32" : "#c62828",
+          marginBottom: 12,
+          fontSize: 13,
+        }}>
+          {msgImport}
+        </div>
+      )}
 
       {/* Búsqueda */}
       <input
         value={busqueda}
         onChange={e => setBusqueda(e.target.value)}
         placeholder="🔍 Buscar por nombre o EPC..."
-        style={{ ...styles.input, marginBottom: 12, width: "100%", boxSizing: "border-box" }}
+        style={{
+          ...styles.input,
+          marginBottom: 12,
+          width: "100%",
+          boxSizing: "border-box",
+        }}
       />
 
       {/* Filtros */}
-      <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 16, paddingBottom: 4 }}>
+      <div style={{
+        display: "flex",
+        gap: 8,
+        overflowX: "auto",
+        marginBottom: 16,
+        paddingBottom: 4,
+      }}>
         {categorias.map(cat => (
           <button
             key={cat}
@@ -350,7 +426,9 @@ export default function Joyas() {
         <div key={joya.id} style={styles.joyaCard}>
           <div style={styles.joyaIcono}>💎</div>
           <div style={{ flex: 1 }}>
-            <p style={{ margin: 0, fontWeight: "bold", fontSize: 14 }}>{joya.nombre}</p>
+            <p style={{ margin: 0, fontWeight: "bold", fontSize: 14 }}>
+              {joya.nombre}
+            </p>
             <p style={{ margin: 0, fontSize: 12, color: "#666" }}>
               {joya.metal} · {joya.peso_g}g · S/{joya.precio.toLocaleString()}
             </p>
