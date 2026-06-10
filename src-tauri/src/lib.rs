@@ -147,6 +147,7 @@ pub fn run() {
             insertar_datos_prueba,
             buscar_joya,
             importar_excel_bytes,
+            exportar_inventario,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -208,7 +209,35 @@ fn importar_excel_bytes(
 
     Ok(resultado)
 }
+#[tauri::command]
+fn exportar_inventario(
+    state: State<DbState>,
+    toma_id: Option<i64>,
+) -> Result<Vec<u8>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
 
+    let joyas = db::get_joyas(&conn, None).map_err(|e| e.to_string())?;
+
+    let resultados = if let Some(id) = toma_id {
+        db::conciliar_toma(&conn, id).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    // Guardar en archivo temporal
+    let temp_path = std::env::temp_dir().join("inventario_rfid.xlsx");
+    let temp_str = temp_path.to_string_lossy().to_string();
+
+    excel::generar_excel_inventario(&temp_str, &joyas, &resultados)?;
+
+    // Leer bytes del archivo generado
+    let bytes = std::fs::read(&temp_path).map_err(|e| e.to_string())?;
+
+    // Limpiar temporal
+    let _ = std::fs::remove_file(&temp_path);
+
+    Ok(bytes)
+}
 #[tauri::command]
 fn buscar_joya(state: State<DbState>, query: String) -> Result<Vec<db::Joya>, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;

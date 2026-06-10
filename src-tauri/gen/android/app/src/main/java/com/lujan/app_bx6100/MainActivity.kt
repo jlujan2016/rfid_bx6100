@@ -52,6 +52,8 @@ class MainActivity : TauriActivity() {
         Log.d("RFID", "MainActivity iniciada")
 
         val filter = IntentFilter().apply {
+            addAction("android.rfid.FUN_KEY")         
+            addAction("android.intent.action.FUN_KEY")
             addAction("android.intent.action.KEY_DOWN")
             addAction("android.intent.action.KEY_UP")
             addAction("com.android.scanner.action.SCAN_START")
@@ -65,6 +67,14 @@ class MainActivity : TauriActivity() {
         }
         registerReceiver(gatilloReceiver, filter)
         Log.d("RFID_TRIGGER", "BroadcastReceiver registrado")
+        try {
+            com.handheld.uhfr.UHFRManager.getInstance()?.setCancleInventoryFilter()
+            Log.d("RFID_TRIGGER", "setCancleInventoryFilter OK")
+        } catch (e: Throwable) {
+            Log.e("RFID_TRIGGER", "setCancleInventoryFilter error: ${e.message}")
+        }
+
+
     }
 
     private fun notificarGatilloDown() {
@@ -82,10 +92,26 @@ class MainActivity : TauriActivity() {
         Log.d("RFID", "JavascriptInterface inyectado")
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        Log.d("RFID_TRIGGER", "KeyDown: $keyCode")
-        return super.onKeyDown(keyCode, event)
+// En MainActivity.kt — reemplaza onKeyDown por dispatchKeyEvent
+override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    Log.d("RFID_TRIGGER", "dispatchKeyEvent: keyCode=${event.keyCode} action=${event.action}")
+    
+    if (event.action == KeyEvent.ACTION_UP) {
+        val esGatillo = event.keyCode == KeyEvent.KEYCODE_F3 ||
+                        event.keyCode == KeyEvent.KEYCODE_F4 ||
+                        event.keyCode == KeyEvent.KEYCODE_F7 ||
+                        event.keyCode == 134 ||
+                        event.keyCode == 137 ||
+                        event.keyCode == 280
+
+        if (esGatillo) {
+            Log.d("RFID_TRIGGER", "GATILLO via dispatchKeyEvent: ${event.keyCode}")
+            notificarGatilloDown()
+            return true
+        }
     }
+    return super.dispatchKeyEvent(event)
+}
 
     override fun onDestroy() {
         super.onDestroy()
