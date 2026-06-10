@@ -34,5 +34,15 @@
             android:name="android.support.FILE_PROVIDER_PATHS"
             android:resource="@xml/file_paths" />
         </provider>
+        <receiver
+            android:name=".GatilloReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.KEY_DOWN"/>
+                <action android:name="android.intent.action.KEY_UP"/>
+                <action android:name="com.handheld.action.KEY_DOWN"/>
+                <action android:name="android.intent.action.SCAN"/>
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { TagEscaneado, Joya, ResultadoTag } from "../types";
+import { useGatillo } from "../hooks/useGatillo";
 
 declare global {
   interface Window {
@@ -32,6 +33,7 @@ export default function Escanear({ onFinalizar }: Props) {
   const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tomaIdRef = useRef<number | null>(null);
   const zonaRef = useRef<Zona>("Tienda");
+  const estadoRef = useRef<EstadoEscaneo>("idle");
 
   // Verificar hardware
   useEffect(() => {
@@ -49,6 +51,16 @@ export default function Escanear({ onFinalizar }: Props) {
     cargarJoyas();
   }, []);
 
+  useEffect(() => {
+    estadoRef.current = estado;
+  }, [estado]);
+
+  useGatillo(() => {
+    if (estadoRef.current === "idle")            iniciarEscaneo();
+    else if (estadoRef.current === "escaneando") pausar();
+    else if (estadoRef.current === "pausado")    reanudar();
+  });
+  
   async function cargarJoyas() {
     try {
       const joyas = await invoke<Joya[]>("get_joyas", { categoria: null });

@@ -18,18 +18,13 @@ object RFIDTest {
                     put("success", false)
                     put("error", "Manager no disponible")
                 }.toString()
-
             manager.setPower(p, p)
             currentPower = p
-            Log.d("RFID", "Potencia configurada: $p dBm")
-
             JSONObject().apply {
                 put("success", true)
                 put("power", p)
             }.toString()
-
         } catch (e: Throwable) {
-            Log.e("RFID", "Error setPower: ${e.message}")
             JSONObject().apply {
                 put("success", false)
                 put("error", e.message ?: "Error desconocido")
@@ -44,14 +39,12 @@ object RFIDTest {
                     put("success", false)
                     put("error", "Manager no disponible")
                 }.toString()
-
             val powers = manager.getPower()
             JSONObject().apply {
                 put("success", true)
                 put("readPower", powers?.getOrNull(0) ?: currentPower)
                 put("writePower", powers?.getOrNull(1) ?: currentPower)
             }.toString()
-
         } catch (e: Throwable) {
             JSONObject().apply {
                 put("success", false)
@@ -65,7 +58,7 @@ object RFIDTest {
             val manager = UHFRManager.getInstance()
                 ?: return JSONObject().apply {
                     put("success", false)
-                    put("error", "UHFRManager.getInstance() retornó null")
+                    put("error", "UHFRManager null")
                     put("tags", JSONArray())
                     put("count", 0)
                 }.toString()
@@ -81,27 +74,20 @@ object RFIDTest {
             }
 
             val tagsArray = JSONArray()
-
             for (tag in result) {
                 try {
                     val cls = tag.javaClass
-
                     val epcField = cls.getDeclaredField("EpcId")
                     epcField.isAccessible = true
-                    val epcBytes = epcField.get(tag) as ByteArray
-                    val epcHex = epcBytes.joinToString("") {
-                        String.format("%02X", it)
-                    }
-
+                    val epcHex = (epcField.get(tag) as ByteArray)
+                        .joinToString("") { String.format("%02X", it) }
                     val rssiField = cls.getDeclaredField("RSSI")
                     rssiField.isAccessible = true
                     val rssi = (rssiField.get(tag) as? Int) ?: 0
-
                     tagsArray.put(JSONObject().apply {
                         put("epc", epcHex)
                         put("rssi", rssi)
                     })
-
                 } catch (e: Throwable) {
                     Log.e("RFID", "Error parseando tag: ${e.message}")
                 }
@@ -114,7 +100,6 @@ object RFIDTest {
             }.toString()
 
         } catch (e: Throwable) {
-            Log.e("RFID", "Error: ${e.message}")
             JSONObject().apply {
                 put("success", false)
                 put("error", e.message ?: "Error desconocido")

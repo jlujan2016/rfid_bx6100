@@ -1,4 +1,4 @@
-use calamine::{open_workbook, Reader, Xlsx, DataType};
+use calamine::{Reader, Xlsx, DataType};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -20,8 +20,11 @@ pub struct FilaExcel {
     pub epc: Option<String>,
 }
 
-pub fn leer_excel(ruta: &str) -> Result<Vec<FilaExcel>, String> {
-    let mut workbook: Xlsx<_> = open_workbook(ruta)
+use std::io::Cursor;
+
+pub fn leer_excel_bytes(bytes: &[u8]) -> Result<Vec<FilaExcel>, String> {
+    let cursor = Cursor::new(bytes);
+    let mut workbook = Xlsx::new(cursor)
         .map_err(|e| format!("Error abriendo archivo: {}", e))?;
 
     let sheet_name = workbook
@@ -36,9 +39,7 @@ pub fn leer_excel(ruta: &str) -> Result<Vec<FilaExcel>, String> {
 
     let mut filas: Vec<FilaExcel> = Vec::new();
     let mut iter = range.rows();
-
-    // Saltar encabezado
-    iter.next();
+    iter.next(); // saltar encabezado
 
     for row in iter {
         let nombre = row.get(0)
@@ -47,9 +48,7 @@ pub fn leer_excel(ruta: &str) -> Result<Vec<FilaExcel>, String> {
             .trim()
             .to_string();
 
-        if nombre.is_empty() {
-            continue;
-        }
+        if nombre.is_empty() { continue; }
 
         let categoria = row.get(1)
             .and_then(|c| c.as_string())
@@ -63,13 +62,8 @@ pub fn leer_excel(ruta: &str) -> Result<Vec<FilaExcel>, String> {
             .trim()
             .to_string();
 
-        let peso_g = row.get(3)
-            .and_then(|c| c.as_f64())
-            .unwrap_or(0.0);
-
-        let precio = row.get(4)
-            .and_then(|c| c.as_f64())
-            .unwrap_or(0.0);
+        let peso_g = row.get(3).and_then(|c| c.as_f64()).unwrap_or(0.0);
+        let precio  = row.get(4).and_then(|c| c.as_f64()).unwrap_or(0.0);
 
         let ubicacion = row.get(5)
             .and_then(|c| c.as_string())
@@ -88,16 +82,7 @@ pub fn leer_excel(ruta: &str) -> Result<Vec<FilaExcel>, String> {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
-        filas.push(FilaExcel {
-            nombre,
-            categoria,
-            metal,
-            peso_g,
-            precio,
-            ubicacion,
-            estado,
-            epc,
-        });
+        filas.push(FilaExcel { nombre, categoria, metal, peso_g, precio, ubicacion, estado, epc });
     }
 
     Ok(filas)

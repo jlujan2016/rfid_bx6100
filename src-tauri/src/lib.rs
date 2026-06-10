@@ -146,29 +146,18 @@ pub fn run() {
             get_tomas,
             insertar_datos_prueba,
             buscar_joya,
-            importar_excel,
+            importar_excel_bytes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
 #[tauri::command]
-async fn importar_excel(
-    app: tauri::AppHandle,
-    state: State<'_, DbState>,
+fn importar_excel_bytes(
+    state: State<DbState>,
+    bytes: Vec<u8>,
 ) -> Result<excel::ImportResult, String> {
-    use tauri_plugin_dialog::DialogExt;
-
-    let ruta = app
-        .dialog()
-        .file()
-        .add_filter("Excel", &["xlsx"])
-        .blocking_pick_file()
-        .ok_or("No se seleccionó archivo")?;
-
-    let ruta_str = ruta.to_string();
-
-    let filas = excel::leer_excel(&ruta_str)?;
+    let filas = excel::leer_excel_bytes(&bytes)?;
 
     let conn = state.0.lock().map_err(|e| e.to_string())?;
 
@@ -179,7 +168,6 @@ async fn importar_excel(
     };
 
     for fila in &filas {
-        // Verificar si EPC ya existe
         if let Some(epc) = &fila.epc {
             match db::get_joya_por_epc(&conn, epc) {
                 Ok(Some(existente)) => {

@@ -53,34 +53,60 @@ export default function Joyas() {
     }
   }
 
-  async function importarExcel() {
-    setImportando(true);
-    setMsgImport(null);
-    try {
-      const result = await invoke<{
-        insertadas: number;
-        duplicadas: number;
-        errores: string[];
-      }>("importar_excel");
+async function importarExcel() {
+  setImportando(true);
+  setMsgImport(null);
+  try {
+    // Crear input file oculto para seleccionar archivo
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".xlsx";
 
-      let msg = `✅ ${result.insertadas} joyas importadas`;
-      if (result.duplicadas > 0) {
-        msg += ` · ⚠️ ${result.duplicadas} EPC duplicados`;
-      }
-      setMsgImport(msg);
-
-      if (result.errores.length > 0) {
-        console.warn("Errores importación:", result.errores);
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) {
+        setImportando(false);
+        return;
       }
 
-      await cargarJoyas();
-    } catch (e) {
-      setMsgImport("❌ " + String(e));
-    } finally {
-      setImportando(false);
-      setTimeout(() => setMsgImport(null), 5000);
-    }
+      try {
+        // Leer archivo como bytes
+        const arrayBuffer = await file.arrayBuffer();
+        const bytes = Array.from(new Uint8Array(arrayBuffer));
+
+        const result = await invoke<{
+          insertadas: number;
+          duplicadas: number;
+          errores: string[];
+        }>("importar_excel_bytes", { bytes });
+
+        let msg = `✅ ${result.insertadas} joyas importadas`;
+        if (result.duplicadas > 0) {
+          msg += ` · ⚠️ ${result.duplicadas} EPC duplicados`;
+        }
+        setMsgImport(msg);
+
+        if (result.errores.length > 0) {
+          console.warn("Errores:", result.errores);
+        }
+
+        await cargarJoyas();
+      } catch (err) {
+        setMsgImport("❌ " + String(err));
+      } finally {
+        setImportando(false);
+        setTimeout(() => setMsgImport(null), 5000);
+      }
+    };
+
+    input.oncancel = () => setImportando(false);
+    input.click();
+
+  } catch (e) {
+    setMsgImport("❌ " + String(e));
+    setImportando(false);
   }
+}
 
   function abrirForm(joya?: Joya) {
     if (joya) {
