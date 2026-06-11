@@ -1,15 +1,82 @@
 import { ResultadoTag } from "../types";
+import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+
+
 
 interface Props {
   tomaId: number;
   resultados: ResultadoTag[];
   onVolver: () => void;
 }
+declare global {
+  interface Window {
+    AndroidRFID: {
+      scanRFID: (duration: number) => string;
+      guardarArchivo: (base64: string, nombreArchivo: string) => string;
+    };
+  }
+}
 
 export default function Resultados({ tomaId, resultados, onVolver }: Props) {
   const ok = resultados.filter(r => r.estado_conciliacion === "OK");
   const faltantes = resultados.filter(r => r.estado_conciliacion === "Faltante");
   const noEsperados = resultados.filter(r => r.estado_conciliacion === "No esperado");
+  
+  const [exportando, setExportando] = useState(false);
+  const [msgExport, setMsgExport] = useState<string | null>(null);
+  
+async function exportar() {
+  setExportando(true);
+  setMsgExport(null);
+  try {
+    const bytes = await invoke<number[]>("exportar_inventario", {
+      tomaId: tomaId > 0 ? tomaId : null,
+    });
+
+    const nombreArchivo = `inventario_toma${tomaId}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+    // Convertir bytes a base64
+    const uint8 = new Uint8Array(bytes);
+    let binary = "";
+    uint8.forEach(b => binary += String.fromCharCode(b));
+    const base64 = btoa(binary);
+
+    // Guardar via Android
+    if (window.AndroidRFID && (window.AndroidRFID as any).guardarArchivo) {
+      const resultado = JSON.parse(
+        (window.AndroidRFID as any).guardarArchivo(base64, nombreArchivo)
+      );
+
+      if (resultado.success) {
+        setMsgExport(`✅ Guardado en Descargas/${nombreArchivo}`);
+      } else {
+        setMsgExport(`❌ ${resultado.error}`);
+      }
+      return;
+    }
+
+    // Fallback web
+    const blob = new Blob([uint8], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nombreArchivo;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setMsgExport("✅ Reporte exportado");
+
+  } catch (e) {
+    setMsgExport("❌ " + String(e));
+  } finally {
+    setExportando(false);
+    setTimeout(() => setMsgExport(null), 5000);
+  }
+}
 
   return (
     <div style={{ padding: 16, maxWidth: 480, margin: "0 auto" }}>
@@ -115,9 +182,29 @@ export default function Resultados({ tomaId, resultados, onVolver }: Props) {
         <button style={styles.btnEnviar}>
           ↑ Enviar al sistema web
         </button>
-        <button style={styles.btnExportar}>
-          ⬇ Exportar reporte
-        </button>
+        <button
+            onClick={exportar}
+            disabled={exportando}
+            style={{
+              ...styles.btnExportar,
+              opacity: exportando ? 0.6 : 1,
+            }}
+          >
+            {exportando ? "⏳ Generando..." : "⬇ Exportar reporte"}
+          </button>
+
+          {msgExport && (
+            <div style={{
+              padding: 12,
+              borderRadius: 8,
+              backgroundColor: msgExport.startsWith("✅") ? "#e8f5e9" : "#ffebee",
+              color: msgExport.startsWith("✅") ? "#2e7d32" : "#c62828",
+              fontSize: 13,
+              textAlign: "center",
+            }}>
+              {msgExport}
+            </div>
+          )}
       </div>
     </div>
   );

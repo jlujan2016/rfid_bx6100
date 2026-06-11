@@ -211,6 +211,7 @@ fn importar_excel_bytes(
 }
 #[tauri::command]
 fn exportar_inventario(
+    app: tauri::AppHandle,
     state: State<DbState>,
     toma_id: Option<i64>,
 ) -> Result<Vec<u8>, String> {
@@ -224,13 +225,20 @@ fn exportar_inventario(
         Vec::new()
     };
 
-    // Guardar en archivo temporal
-    let temp_path = std::env::temp_dir().join("inventario_rfid.xlsx");
+    // Usar directorio de caché de la app en lugar de temp del sistema
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?;
+
+    std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+
+    let temp_path = cache_dir.join("inventario_rfid.xlsx");
     let temp_str = temp_path.to_string_lossy().to_string();
 
     excel::generar_excel_inventario(&temp_str, &joyas, &resultados)?;
 
-    // Leer bytes del archivo generado
+     // Leer bytes del archivo generado
     let bytes = std::fs::read(&temp_path).map_err(|e| e.to_string())?;
 
     // Limpiar temporal
