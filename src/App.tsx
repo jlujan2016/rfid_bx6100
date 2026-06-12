@@ -7,8 +7,9 @@ import Historial from "./pages/Historial";
 import Joyas from "./pages/Joyas";
 import { ResultadoTag } from "./types";
 import Localizar from "./pages/Localizar";
+import Resumen from "./pages/Resumen";
 
-type Tab = "inventario" | "escanear" | "joyas" | "historial" | "localizar";
+type Tab = "inventario" | "escanear" | "joyas" | "historial" | "localizar" | "resumen";
 type Pantalla = "main" | "resultados";
 
 export default function App() {
@@ -56,6 +57,7 @@ export default function App() {
     { id: "joyas",      label: "Joyas",      icon: "💎" },
     { id: "historial",  label: "Historial",  icon: "🕐" },
     { id: "localizar",  label: "Localizar",  icon: "🎯" },
+    { id: "resumen",    label: "Resumen",    icon: "📊" },
   ];
 
   return (
@@ -102,6 +104,7 @@ export default function App() {
         <Historial />
       )}
       {tab === "localizar" && <Localizar />}
+      {tab === "resumen" && <Resumen />}
 
       {/* Tab bar fijo abajo */}
       <div style={{

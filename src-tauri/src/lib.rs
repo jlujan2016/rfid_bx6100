@@ -148,6 +148,7 @@ pub fn run() {
             buscar_joya,
             importar_excel_bytes,
             exportar_inventario,
+            get_resumen,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -250,4 +251,80 @@ fn exportar_inventario(
 fn buscar_joya(state: State<DbState>, query: String) -> Result<Vec<db::Joya>, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
     db::buscar_joya(&conn, &query).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+struct ResumenData {
+    total_joyas: i64,
+    con_tag: i64,
+    sin_tag: i64,
+    valor_total: f64,
+    por_categoria: Vec<CategoriaStats>,
+    ultimas_tomas: Vec<Toma>,
+}
+
+#[derive(serde::Serialize)]
+struct CategoriaStats {
+    categoria: String,
+    total: i64,
+    porcentaje: f64,
+}
+
+#[tauri::command]
+fn get_resumen(state: State<DbState>) -> Result<ResumenData, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    // Totales
+    let total_joyas: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM joyas", [], |r| r.get(0)
+    ).map_err(|e| e.to_string())?;
+
+    let con_tag: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM joyas WHERE epc IS NOT NULL", [], |r| r.get(0)
+    ).map_err(|e| e.to_string())?;
+
+    let valor_total: f64 = conn.query_row(
+        "SELECT COALESCE(SUM(precio), 0) FROM joyas", [], |r| r.get(0)
+    ).map_err(|e| e.to_string())?;
+
+    // Por categoría
+    let mut stmt = conn.prepare(
+        "SELECT categoria, COUNT(*) as total
+         FROM joyas
+         GROUP BY categoria
+         ORDER BY total DESC"
+    ).map_err(|e| e.to_string())?;
+
+    let cats = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })
+    .map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .collect::<Vec<_>>();
+
+    let por_categoria = cats.iter().map(|(cat, total)| {
+        CategoriaStats {
+            categoria: cat.clone(),
+            total: *total,
+            porcentaje: if total_joyas > 0 {
+                (*total as f64 / total_joyas as f64) * 100.0
+            } else { 0.0 },
+        }
+    }).collect();
+
+    // Últimas tomas
+    let ultimas_tomas = db::get_tomas(&conn)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .take(3)
+        .collect();
+
+    Ok(ResumenData {
+        total_joyas,
+        con_tag,
+        sin_tag: total_joyas - con_tag,
+        valor_total,
+        por_categoria,
+        ultimas_tomas,
+    })
 }
