@@ -14,8 +14,9 @@ export default function Joyas() {
   const [joyas, setJoyas] = useState<Joya[]>([]);
   const [filtro, setFiltro] = useState("Todas");
   const [busqueda, setBusqueda] = useState("");
-  const [vista, setVista] = useState<"lista" | "form">("lista");
+  const [vista, setVista] = useState<"lista" | "form" | "detalle">("lista");
   const [joyaEditando, setJoyaEditando] = useState<Joya | null>(null);
+  const [joyaDetalle, setJoyaDetalle] = useState<Joya | null>(null);
   const [escaneandoEpc, setEscaneandoEpc] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,60 +54,58 @@ export default function Joyas() {
     }
   }
 
-async function importarExcel() {
-  setImportando(true);
-  setMsgImport(null);
-  try {
-    // Crear input file oculto para seleccionar archivo
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".xlsx";
+  async function importarExcel() {
+    setImportando(true);
+    setMsgImport(null);
+    try {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".xlsx";
 
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) {
-        setImportando(false);
-        return;
-      }
-
-      try {
-        // Leer archivo como bytes
-        const arrayBuffer = await file.arrayBuffer();
-        const bytes = Array.from(new Uint8Array(arrayBuffer));
-
-        const result = await invoke<{
-          insertadas: number;
-          duplicadas: number;
-          errores: string[];
-        }>("importar_excel_bytes", { bytes });
-
-        let msg = `✅ ${result.insertadas} joyas importadas`;
-        if (result.duplicadas > 0) {
-          msg += ` · ⚠️ ${result.duplicadas} EPC duplicados`;
-        }
-        setMsgImport(msg);
-
-        if (result.errores.length > 0) {
-          console.warn("Errores:", result.errores);
+      input.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) {
+          setImportando(false);
+          return;
         }
 
-        await cargarJoyas();
-      } catch (err) {
-        setMsgImport("❌ " + String(err));
-      } finally {
-        setImportando(false);
-        setTimeout(() => setMsgImport(null), 5000);
-      }
-    };
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const bytes = Array.from(new Uint8Array(arrayBuffer));
 
-    input.oncancel = () => setImportando(false);
-    input.click();
+          const result = await invoke<{
+            insertadas: number;
+            duplicadas: number;
+            errores: string[];
+          }>("importar_excel_bytes", { bytes });
 
-  } catch (e) {
-    setMsgImport("❌ " + String(e));
-    setImportando(false);
+          let msg = `✅ ${result.insertadas} joyas importadas`;
+          if (result.duplicadas > 0) {
+            msg += ` · ⚠️ ${result.duplicadas} EPC duplicados`;
+          }
+          setMsgImport(msg);
+
+          if (result.errores.length > 0) {
+            console.warn("Errores:", result.errores);
+          }
+
+          await cargarJoyas();
+        } catch (err) {
+          setMsgImport("❌ " + String(err));
+        } finally {
+          setImportando(false);
+          setTimeout(() => setMsgImport(null), 5000);
+        }
+      };
+
+      input.oncancel = () => setImportando(false);
+      input.click();
+
+    } catch (e) {
+      setMsgImport("❌ " + String(e));
+      setImportando(false);
+    }
   }
-}
 
   function abrirForm(joya?: Joya) {
     if (joya) {
@@ -128,6 +127,11 @@ async function importarExcel() {
     }
     setError(null);
     setVista("form");
+  }
+
+  function abrirDetalle(joya: Joya) {
+    setJoyaDetalle(joya);
+    setVista("detalle");
   }
 
   async function guardar() {
@@ -187,6 +191,50 @@ async function importarExcel() {
     }, 10000);
   }
 
+  // ============ FOTO ============
+
+  function tomarFoto() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.capture = "environment"; // abre la cámara directamente en Android
+
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result as string;
+        setForm(prev => ({ ...prev, foto: base64 }));
+      };
+      reader.readAsDataURL(file);
+    };
+
+    input.click();
+  }
+
+  function elegirDeGaleria() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    // sin "capture" abre la galería
+
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result as string;
+        setForm(prev => ({ ...prev, foto: base64 }));
+      };
+      reader.readAsDataURL(file);
+    };
+
+    input.click();
+  }
+
   const joyasFiltradas = joyas
     .filter(j => filtro === "Todas" || j.categoria === filtro)
     .filter(j =>
@@ -194,6 +242,90 @@ async function importarExcel() {
       j.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
       j.epc?.toLowerCase().includes(busqueda.toLowerCase())
     );
+
+  // ============ DETALLE ============
+  if (vista === "detalle" && joyaDetalle) {
+    return (
+      <div style={{ padding: 16, maxWidth: 480, margin: "0 auto" }}>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <button
+            onClick={() => { setVista("lista"); setJoyaDetalle(null); }}
+            style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer" }}>
+            ←
+          </button>
+          <h2 style={{ margin: 0 }}>Detalle</h2>
+          <button onClick={() => abrirForm(joyaDetalle)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer" }}>
+            ✏️
+          </button>
+        </div>
+
+        {/* Foto */}
+        <div style={styles.fotoContainer}>
+          {joyaDetalle.foto ? (
+            <img src={joyaDetalle.foto} alt={joyaDetalle.nombre} style={styles.fotoImg} />
+          ) : (
+            <div style={styles.fotoPlaceholder}>
+              <span style={{ fontSize: 40 }}>📷</span>
+            </div>
+          )}
+        </div>
+
+        <h3 style={{ margin: "0 0 8px" }}>{joyaDetalle.nombre}</h3>
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <span style={styles.badgeCategoria}>{joyaDetalle.categoria}</span>
+          <span style={{
+            ...styles.badgeEstado,
+            backgroundColor: joyaDetalle.estado === "En stock" ? "#e8f5e9"
+              : joyaDetalle.estado === "Vendido" ? "#ffebee" : "#fff3e0",
+            color: joyaDetalle.estado === "En stock" ? "#2e7d32"
+              : joyaDetalle.estado === "Vendido" ? "#c62828" : "#e65100",
+          }}>
+            {joyaDetalle.estado}
+          </span>
+        </div>
+
+        <div style={styles.card}>
+          {[
+            ["Metal", joyaDetalle.metal || "—"],
+            ["Peso", `${joyaDetalle.peso_g} g`],
+            ["Precio", `S/ ${joyaDetalle.precio.toLocaleString()}`],
+            ["Ubicación", joyaDetalle.ubicacion],
+            ["Tag RFID", joyaDetalle.epc ?? "Sin asignar"],
+            ["Actualizado", new Date(joyaDetalle.actualizado_at).toLocaleDateString("es-PE")],
+          ].map(([label, valor], i) => (
+            <div key={label} style={{
+              display: "flex",
+              justifyContent: "space-between",
+              padding: "10px 0",
+              borderBottom: i < 5 ? "1px solid #f5f5f5" : "none",
+            }}>
+              <span style={{ fontSize: 13, color: "#666" }}>{label}</span>
+              <span style={{
+                fontSize: 13,
+                fontWeight: "bold",
+                fontFamily: label === "Tag RFID" ? "monospace" : "inherit",
+                color: label === "Tag RFID" && !joyaDetalle.epc ? "#e65100" : "#1a1a2e",
+              }}>
+                {valor}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={() => {
+            eliminar(joyaDetalle.id);
+            setVista("lista");
+            setJoyaDetalle(null);
+          }}
+          style={styles.btnEliminar}
+        >
+          🗑 Eliminar joya
+        </button>
+      </div>
+    );
+  }
 
   // ============ FORMULARIO ============
   if (vista === "form") {
@@ -215,6 +347,34 @@ async function importarExcel() {
         </div>
 
         {error && <div style={styles.error}>{error}</div>}
+
+        {/* Foto */}
+        <div style={styles.fotoContainer}>
+          {form.foto ? (
+            <img src={form.foto} alt="preview" style={styles.fotoImg} />
+          ) : (
+            <div style={styles.fotoPlaceholder}>
+              <span style={{ fontSize: 40 }}>📷</span>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <button onClick={tomarFoto} style={styles.btnFoto}>
+            📷 Tomar foto
+          </button>
+          <button onClick={elegirDeGaleria} style={styles.btnFoto}>
+            🖼️ Galería
+          </button>
+          {form.foto && (
+            <button
+              onClick={() => setForm(p => ({ ...p, foto: null }))}
+              style={{ ...styles.btnFoto, backgroundColor: "#ffebee", color: "#c62828" }}
+            >
+              🗑
+            </button>
+          )}
+        </div>
 
         <button
           onClick={escanearEpc}
@@ -343,7 +503,7 @@ async function importarExcel() {
   return (
     <div style={{ padding: 16, maxWidth: 480, margin: "0 auto" }}>
 
-      {/* Header con botón importar */}
+    {/* Header con botón importar */}
       <div style={{
         display: "flex",
         justifyContent: "space-between",
@@ -449,8 +609,16 @@ async function importarExcel() {
       )}
 
       {joyasFiltradas.map(joya => (
-        <div key={joya.id} style={styles.joyaCard}>
-          <div style={styles.joyaIcono}>💎</div>
+        <div
+          key={joya.id}
+          onClick={() => abrirDetalle(joya)}
+          style={{ ...styles.joyaCard, cursor: "pointer" }}
+        >
+          <div style={styles.joyaIcono}>
+            {joya.foto ? (
+              <img src={joya.foto} alt="" style={{ width: "100%", height: "100%", borderRadius: 10, objectFit: "cover" }} />
+            ) : "💎"}
+          </div>
           <div style={{ flex: 1 }}>
             <p style={{ margin: 0, fontWeight: "bold", fontSize: 14 }}>
               {joya.nombre}
@@ -468,7 +636,7 @@ async function importarExcel() {
               </p>
             )}
           </div>
-          <div style={{ display: "flex", gap: 4 }}>
+          <div style={{ display: "flex", gap: 4 }} onClick={e => e.stopPropagation()}>
             <button onClick={() => abrirForm(joya)} style={styles.btnIcono}>
               ✏️
             </button>
@@ -505,6 +673,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     justifyContent: "center",
     fontSize: 22,
+    overflow: "hidden",
   },
   campo: {
     marginBottom: 14,
@@ -582,5 +751,69 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 8,
     marginBottom: 12,
     fontSize: 13,
+  },
+  fotoContainer: {
+    width: "100%",
+    height: 200,
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 12,
+    backgroundColor: "#f5f5f5",
+  },
+  fotoImg: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+  },
+  fotoPlaceholder: {
+    width: "100%",
+    height: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#ccc",
+  },
+  btnFoto: {
+    flex: 1,
+    padding: "10px 0",
+    backgroundColor: "#f5f3ff",
+    color: "#6C63FF",
+    border: "1px solid #e0d7ff",
+    borderRadius: 8,
+    fontSize: 13,
+    cursor: "pointer",
+  },
+  card: {
+    border: "1px solid #eee",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    backgroundColor: "white",
+  },
+  badgeCategoria: {
+    padding: "4px 12px",
+    borderRadius: 8,
+    fontSize: 12,
+    backgroundColor: "#f5f3ff",
+    color: "#6C63FF",
+    fontWeight: "bold",
+  },
+  badgeEstado: {
+    padding: "4px 12px",
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  btnEliminar: {
+    width: "100%",
+    padding: 14,
+    backgroundColor: "#ffebee",
+    color: "#c62828",
+    border: "none",
+    borderRadius: 12,
+    fontSize: 14,
+    fontWeight: "bold",
+    cursor: "pointer",
+    marginTop: 8,
   },
 };
