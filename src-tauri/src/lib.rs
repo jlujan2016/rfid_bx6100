@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use rusqlite::Connection;
 use tauri::State;
 use db::{JoyaInput, Joya, Toma, ResultadoTag};
+use serde::{Serialize, Deserialize};
 
 struct DbState(Mutex<Connection>);
 
@@ -149,6 +150,15 @@ pub fn run() {
             importar_excel_bytes,
             exportar_inventario,
             get_resumen,
+            get_config_api,
+            set_config_api,
+            probar_conexion,
+            get_zonas_wifi,
+            agregar_zona_wifi,
+            eliminar_zona_wifi,
+            login,
+logout,
+get_sesion,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -327,4 +337,170 @@ fn get_resumen(state: State<DbState>) -> Result<ResumenData, String> {
         por_categoria,
         ultimas_tomas,
     })
+}
+
+#[derive(Serialize, Deserialize)]
+struct ConfigApi {
+    url: String,
+    token: String,
+}
+
+#[tauri::command]
+fn get_config_api(state: State<DbState>) -> Result<ConfigApi, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let url = db::get_config(&conn, "api_url").map_err(|e| e.to_string())?.unwrap_or_default();
+    let token = db::get_config(&conn, "api_token").map_err(|e| e.to_string())?.unwrap_or_default();
+    Ok(ConfigApi { url, token })
+}
+
+#[tauri::command]
+fn set_config_api(state: State<DbState>, url: String, token: String) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::set_config(&conn, "api_url", &url).map_err(|e| e.to_string())?;
+    db::set_config(&conn, "api_token", &token).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn probar_conexion(url: String, token: String) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let endpoint = format!("{}/joyas", url.trim_end_matches('/'));
+
+    let resp = client
+        .get(&endpoint)
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Error de conexión: {}", e))?;
+
+    let status = resp.status();
+
+    if status.is_success() {
+        Ok("Conexión exitosa".to_string())
+    } else if status == 401 {
+        Err("Token inválido o expirado".to_string())
+    } else {
+        Err(format!("Error HTTP {}", status))
+    }
+}
+
+// ============ ZONAS WIFI ============
+
+#[tauri::command]
+fn get_zonas_wifi(state: State<DbState>) -> Result<Vec<db::ZonaWifi>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::get_zonas_wifi(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn agregar_zona_wifi(state: State<DbState>, zona: String, bssid: String) -> Result<i64, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::agregar_zona_wifi(&conn, &zona, &bssid).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn eliminar_zona_wifi(state: State<DbState>, id: i64) -> Result<usize, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::eliminar_zona_wifi(&conn, id).map_err(|e| e.to_string())
+}
+
+#[derive(Serialize, Deserialize)]
+struct LoginResponse {
+    success: bool,
+    message: String,
+    data: Option<LoginData>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct LoginData {
+    token: String,
+    usuario: UsuarioData,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct UsuarioData {
+    id: i64,
+    nombre: String,
+    usuario: String,
+    rol: String,
+}
+
+#[tauri::command]
+async fn login(
+    state: State<'_, DbState>,
+    usuario: String,
+    password: String,
+) -> Result<UsuarioData, String> {
+    // Obtener URL configurada
+    let url = {
+        let conn = state.0.lock().map_err(|e| e.to_string())?;
+        db::get_config(&conn, "api_url")
+            .map_err(|e| e.to_string())?
+            .ok_or("Configura primero la URL de la API en Ajustes")?
+    };
+
+    let endpoint = format!("{}/auth/login", url.trim_end_matches('/'));
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(&endpoint)
+        .form(&[("usuario", &usuario), ("password", &password)])
+        .send()
+        .await
+        .map_err(|e| format!("Error de conexión: {}", e))?;
+
+    let status = resp.status();
+    let body: LoginResponse = resp.json().await
+        .map_err(|e| format!("Respuesta inválida: {}", e))?;
+
+    if !status.is_success() || !body.success {
+        return Err(body.message);
+    }
+
+    let data = body.data.ok_or("Respuesta sin datos")?;
+
+    // Guardar sesión en SQLite
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::set_config(&conn, "session_token", &data.token).map_err(|e| e.to_string())?;
+    db::set_config(&conn, "session_usuario", &data.usuario.usuario).map_err(|e| e.to_string())?;
+    db::set_config(&conn, "session_nombre", &data.usuario.nombre).map_err(|e| e.to_string())?;
+    db::set_config(&conn, "session_rol", &data.usuario.rol).map_err(|e| e.to_string())?;
+    db::set_config(&conn, "session_id", &data.usuario.id.to_string()).map_err(|e| e.to_string())?;
+
+    // También actualizar el token de la API para que probar_conexion funcione
+    db::set_config(&conn, "api_token", &data.token).map_err(|e| e.to_string())?;
+
+    Ok(data.usuario)
+}
+
+#[tauri::command]
+fn logout(state: State<DbState>) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::set_config(&conn, "session_token", "").map_err(|e| e.to_string())?;
+    db::set_config(&conn, "session_usuario", "").map_err(|e| e.to_string())?;
+    db::set_config(&conn, "session_nombre", "").map_err(|e| e.to_string())?;
+    db::set_config(&conn, "session_rol", "").map_err(|e| e.to_string())?;
+    db::set_config(&conn, "session_id", "").map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_sesion(state: State<DbState>) -> Result<Option<UsuarioData>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    let token = db::get_config(&conn, "session_token").map_err(|e| e.to_string())?;
+
+    match token {
+        Some(t) if !t.is_empty() => {
+            let id = db::get_config(&conn, "session_id").map_err(|e| e.to_string())?
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(0);
+            let nombre = db::get_config(&conn, "session_nombre").map_err(|e| e.to_string())?.unwrap_or_default();
+            let usuario = db::get_config(&conn, "session_usuario").map_err(|e| e.to_string())?.unwrap_or_default();
+            let rol = db::get_config(&conn, "session_rol").map_err(|e| e.to_string())?.unwrap_or_default();
+
+            Ok(Some(UsuarioData { id, nombre, usuario, rol }))
+        }
+        _ => Ok(None),
+    }
 }

@@ -28,3 +28,4 @@ tokio = { version = "1", features = ["time"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 calamine = { version = "0.24" } 
 rust_xlsxwriter = "0.75"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

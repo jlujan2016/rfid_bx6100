@@ -115,6 +115,19 @@ pub fn init(conn: &Connection) -> Result<()> {
             scanned_at  DATETIME DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (toma_id) REFERENCES tomas(id)
         );
+
+        CREATE TABLE IF NOT EXISTS config (
+            clave TEXT PRIMARY KEY,
+            valor TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS zonas_wifi (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            zona        TEXT NOT NULL,
+            bssid       TEXT NOT NULL UNIQUE,
+            activo      INTEGER NOT NULL DEFAULT 1,
+            creado_at   DATETIME DEFAULT (datetime('now','localtime'))
+        );
     ")?;
     Ok(())
 }
@@ -358,4 +371,60 @@ pub fn buscar_joya(conn: &Connection, query: &str) -> Result<Vec<Joya>> {
     let resultado = stmt.query_map(params![patron, patron], mapear_joya)?
         .collect::<Result<Vec<Joya>>>()?;
     Ok(resultado)
+}
+
+// ============ CONFIG ============
+
+pub fn get_config(conn: &Connection, clave: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT valor FROM config WHERE clave = ?1")?;
+    let mut rows = stmt.query_map(params![clave], |row| row.get::<_, String>(0))?;
+    Ok(rows.next().transpose()?)
+}
+
+pub fn set_config(conn: &Connection, clave: &str, valor: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO config (clave, valor) VALUES (?1, ?2)
+         ON CONFLICT(clave) DO UPDATE SET valor = ?2",
+        params![clave, valor],
+    )?;
+    Ok(())
+}
+
+// ============ ZONAS WIFI ============
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ZonaWifi {
+    pub id: i64,
+    pub zona: String,
+    pub bssid: String,
+    pub activo: bool,
+}
+
+pub fn get_zonas_wifi(conn: &Connection) -> Result<Vec<ZonaWifi>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, zona, bssid, activo FROM zonas_wifi ORDER BY zona, bssid"
+    )?;
+    let zonas = stmt.query_map([], |row| {
+        Ok(ZonaWifi {
+            id:     row.get(0)?,
+            zona:   row.get(1)?,
+            bssid:  row.get(2)?,
+            activo: row.get::<_, i64>(3)? == 1,
+        })
+    })?
+    .collect::<Result<Vec<ZonaWifi>>>()?;
+    Ok(zonas)
+}
+
+pub fn agregar_zona_wifi(conn: &Connection, zona: &str, bssid: &str) -> Result<i64> {
+    conn.execute(
+        "INSERT OR IGNORE INTO zonas_wifi (zona, bssid) VALUES (?1, ?2)",
+        params![zona, bssid],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn eliminar_zona_wifi(conn: &Connection, id: i64) -> Result<usize> {
+    let count = conn.execute("DELETE FROM zonas_wifi WHERE id = ?1", params![id])?;
+    Ok(count)
 }

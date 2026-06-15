@@ -160,33 +160,49 @@ override fun dispatchKeyEvent(event: KeyEvent): Boolean {
             }
         }
 
-    @JavascriptInterface
-    fun guardarArchivo(base64: String, nombreArchivo: String): String {
-        return try {
-            val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+        @JavascriptInterface
+        fun guardarArchivo(base64: String, nombreArchivo: String): String {
+            return try {
+                val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
 
-            val descargas = android.os.Environment.getExternalStoragePublicDirectory(
-                android.os.Environment.DIRECTORY_DOWNLOADS
-            )
-            descargas.mkdirs()
+                val descargas = android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS
+                )
+                descargas.mkdirs()
 
-            val archivo = java.io.File(descargas, nombreArchivo)
-            archivo.writeBytes(bytes)
+                val archivo = java.io.File(descargas, nombreArchivo)
+                archivo.writeBytes(bytes)
 
-            // CORRECCIÓN: Se cambia 'activity' por 'this@MainActivity'
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                this@MainActivity,
-                "${this@MainActivity.packageName}.fileprovider",
-                archivo
-            )
+                // CORRECCIÓN: Se cambia 'activity' por 'this@MainActivity'
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    this@MainActivity,
+                    "${this@MainActivity.packageName}.fileprovider",
+                    archivo
+                )
 
-            android.util.Log.d("RFID", "Archivo guardado: ${archivo.absolutePath}")
-            "{\"success\":true,\"ruta\":\"${archivo.absolutePath}\"}"
-        } catch (e: Throwable) {
-            android.util.Log.e("RFID", "Error guardando: ${e.message}")
-            "{\"success\":false,\"error\":\"${e.message}\"}"
+                android.util.Log.d("RFID", "Archivo guardado: ${archivo.absolutePath}")
+                "{\"success\":true,\"ruta\":\"${archivo.absolutePath}\"}"
+            } catch (e: Throwable) {
+                android.util.Log.e("RFID", "Error guardando: ${e.message}")
+                "{\"success\":false,\"error\":\"${e.message}\"}"
+            }
         }
-    }
+
+        @JavascriptInterface
+        fun getBssidActual(): String {
+            return try {
+                val wifiManager = this@MainActivity.applicationContext
+                    .getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+
+                @Suppress("DEPRECATION")
+                val info = wifiManager.connectionInfo
+                val bssid = info.bssid ?: ""
+
+                "{\"success\":true,\"bssid\":\"$bssid\"}"
+            } catch (e: Throwable) {
+                "{\"success\":false,\"error\":\"${e.message}\"}"
+            }
+        }
 
 
 
