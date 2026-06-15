@@ -159,6 +159,9 @@ pub fn run() {
             login,
 logout,
 get_sesion,
+sync_joyas_a_api,
+sync_toma_a_api,
+debug_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -377,10 +380,10 @@ async fn probar_conexion(url: String, token: String) -> Result<String, String> {
 
     if status.is_success() {
         Ok("Conexión exitosa".to_string())
-    } else if status == 401 {
+    } else if status.as_u16() == 401 {
         Err("Token inválido o expirado".to_string())
     } else {
-        Err(format!("Error HTTP {}", status))
+        Err(format!("Error HTTP {}", status.as_u16()))
     }
 }
 
@@ -503,4 +506,142 @@ fn get_sesion(state: State<DbState>) -> Result<Option<UsuarioData>, String> {
         }
         _ => Ok(None),
     }
+}
+
+#[tauri::command]
+async fn sync_joyas_a_api(
+    state: State<'_, DbState>,
+) -> Result<String, String> {
+    let (url, token, joyas) = {
+        let conn = state.0.lock().map_err(|e| e.to_string())?;
+        let url = db::get_config(&conn, "api_url")
+            .map_err(|e| e.to_string())?
+            .ok_or("URL de API no configurada")?;
+        let token = db::get_config(&conn, "api_token")
+            .map_err(|e| e.to_string())?
+            .ok_or("Token no configurado. Inicia sesión primero.")?;
+        let joyas = db::get_joyas(&conn, None)
+            .map_err(|e| e.to_string())?;
+        (url, token, joyas)
+    };
+
+    if joyas.is_empty() {
+        return Ok("No hay joyas para sincronizar".to_string());
+    }
+
+    let endpoint = format!("{}/joyas/sync", url.trim_end_matches('/'));
+
+    let payload = serde_json::json!({ "joyas": joyas });
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(&endpoint)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Error de conexión: {}", e))?;
+
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await
+        .map_err(|e| format!("Respuesta inválida: {}", e))?;
+
+    if status.is_success() {
+        let insertadas  = body["data"]["insertadas"].as_i64().unwrap_or(0);
+        let actualizadas = body["data"]["actualizadas"].as_i64().unwrap_or(0);
+        Ok(format!("✅ {} insertadas, {} actualizadas", insertadas, actualizadas))
+    } else {
+        Err(body["message"].as_str().unwrap_or("Error desconocido").to_string())
+    }
+}
+
+#[tauri::command]
+async fn sync_toma_a_api(
+    state: State<'_, DbState>,
+    toma_id: i64,
+) -> Result<String, String> {
+    let (url, token, toma, tags) = {
+        let conn = state.0.lock().map_err(|e| e.to_string())?;
+        let url = db::get_config(&conn, "api_url")
+            .map_err(|e| e.to_string())?
+            .ok_or("URL de API no configurada")?;
+        let token = db::get_config(&conn, "api_token")
+            .map_err(|e| e.to_string())?
+            .ok_or("Token no configurado")?;
+        let toma = db::get_toma_por_id(&conn, toma_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Toma no encontrada")?;
+        let tags = db::get_tags_por_toma(&conn, toma_id)
+            .map_err(|e| e.to_string())?;
+        (url, token, toma, tags)
+    };
+
+    let endpoint = format!("{}/tomas/sync", url.trim_end_matches('/'));
+
+    let payload = serde_json::json!({
+        "numero":             toma.numero,
+        "fecha":              toma.fecha,
+        "ubicacion":          toma.ubicacion,
+        "total_escaneadas":   toma.total_escaneadas,
+        "total_ok":           toma.total_ok,
+        "total_faltantes":    toma.total_faltantes,
+        "total_no_esperadas": toma.total_no_esperadas,
+        "duracion_min":       toma.duracion_min,
+        "tags":               tags,
+    });
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(&endpoint)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Error de conexión: {}", e))?;
+
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await
+        .map_err(|e| format!("Respuesta inválida: {}", e))?;
+
+    if status.is_success() {
+        // Marcar toma como enviada en SQLite local
+        let conn = state.0.lock().map_err(|e| e.to_string())?;
+        db::marcar_toma_enviada(&conn, toma_id).map_err(|e| e.to_string())?;
+        Ok(format!("✅ Toma #{} sincronizada", toma.numero))
+    } else {
+        Err(body["message"].as_str().unwrap_or("Error desconocido").to_string())
+    }
+}
+
+#[tauri::command]
+fn debug_config(
+    app: tauri::AppHandle,
+    state: State<DbState>,
+) -> Result<serde_json::Value, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+
+    // Ruta real del archivo
+    let db_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("rfid_joyas.db");
+
+    // Leer todo lo que hay en config
+    let mut stmt = conn
+        .prepare("SELECT clave, valor FROM config")
+        .map_err(|e| e.to_string())?;
+
+    let filas: Vec<(String, String)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(serde_json::json!({
+        "db_path": db_path.to_string_lossy(),
+        "config": filas,
+    }))
 }

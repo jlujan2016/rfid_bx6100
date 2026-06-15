@@ -428,3 +428,56 @@ pub fn eliminar_zona_wifi(conn: &Connection, id: i64) -> Result<usize> {
     let count = conn.execute("DELETE FROM zonas_wifi WHERE id = ?1", params![id])?;
     Ok(count)
 }
+
+pub fn get_toma_por_id(conn: &Connection, id: i64) -> Result<Option<Toma>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, numero, fecha, ubicacion, total_escaneadas,
+                total_ok, total_faltantes, total_no_esperadas, estado, duracion_min
+         FROM tomas WHERE id = ?1"
+    )?;
+    let mut rows = stmt.query_map(params![id], |row| {
+        Ok(Toma {
+            id:                 row.get(0)?,
+            numero:             row.get(1)?,
+            fecha:              row.get(2)?,
+            ubicacion:          row.get(3)?,
+            total_escaneadas:   row.get(4)?,
+            total_ok:           row.get(5)?,
+            total_faltantes:    row.get(6)?,
+            total_no_esperadas: row.get(7)?,
+            estado:             row.get(8)?,
+            duracion_min:       row.get(9)?,
+        })
+    })?;
+    Ok(rows.next().transpose()?)
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TomaTag {
+    pub epc: String,
+    pub rssi: i32,
+    pub scanned_at: String,
+}
+
+pub fn get_tags_por_toma(conn: &Connection, toma_id: i64) -> Result<Vec<TomaTag>> {
+    let mut stmt = conn.prepare(
+        "SELECT epc, rssi, scanned_at FROM toma_tags WHERE toma_id = ?1"
+    )?;
+    let tags = stmt.query_map(params![toma_id], |row| {
+        Ok(TomaTag {
+            epc:        row.get(0)?,
+            rssi:       row.get(1)?,
+            scanned_at: row.get(2)?,
+        })
+    })?
+    .collect::<Result<Vec<TomaTag>>>()?;
+    Ok(tags)
+}
+
+pub fn marcar_toma_enviada(conn: &Connection, id: i64) -> Result<usize> {
+    let count = conn.execute(
+        "UPDATE tomas SET estado = 'Enviado' WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(count)
+}

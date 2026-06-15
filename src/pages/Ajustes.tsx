@@ -36,17 +36,27 @@ export default function Ajustes() {
     cargarConfig();
     cargarZonas();
     cargarPotencia();
+
+    invoke<any>("debug_config").then(info => {
+    console.log("📂 DB path:", info.db_path);
+    console.log("📋 Config:", info.config);
+  });
   }, []);
 
-  async function cargarConfig() {
-    try {
-      const cfg = await invoke<{ url: string; token: string }>("get_config_api");
-      setUrl(cfg.url);
-      setToken(cfg.token);
-    } catch (e) {
-      console.error(e);
+async function cargarConfig() {
+  try {
+    const cfg = await invoke<{ url: string; token: string }>("get_config_api");
+    console.log("Configuración recuperada de Rust:", cfg); // Agrega este log para comprobarlo
+    
+    if (cfg) {
+      setUrl(cfg.url || "");
+      setToken(cfg.token || ""); // 👈 Asegúrate de que diga EXACTAMENTE .token
     }
+  } catch (e) {
+    console.error("Error al cargar configuración:", e);
   }
+}
+
 
   async function cargarZonas() {
     try {
@@ -149,6 +159,23 @@ function colorPotencia(p: number): string {
   return "#c62828";
 }
 
+const [sincronizando, setSincronizando] = useState(false);
+const [msgSync, setMsgSync] = useState<string | null>(null);
+
+async function sincronizarJoyas() {
+  setSincronizando(true);
+  setMsgSync(null);
+  try {
+    const msg = await invoke<string>("sync_joyas_a_api");
+    setMsgSync(msg);
+  } catch (e) {
+    setMsgSync("❌ " + String(e));
+  } finally {
+    setSincronizando(false);
+    setTimeout(() => setMsgSync(null), 5000);
+  }
+}
+
   const zonasTienda = zonas.filter(z => z.zona === "Tienda");
   const zonasAlmacen = zonas.filter(z => z.zona === "Almacen");
 
@@ -177,7 +204,7 @@ function colorPotencia(p: number): string {
           value={token}
           onChange={e => setToken(e.target.value)}
           placeholder="Token JWT"
-          type="password"
+          type="text"
           style={styles.input}
         />
 
@@ -352,7 +379,38 @@ function colorPotencia(p: number): string {
             </p>
         )}
         </div>   
+     {/* Sección Sincronización */}
+        <div style={styles.card}>
+        <p style={styles.sectionTitle}>SINCRONIZACIÓN</p>
+        <p style={{ fontSize: 12, color: "#666", marginTop: -4, marginBottom: 12 }}>
+            Envía el catálogo local al sistema web.
+        </p>
 
+        <button
+            onClick={sincronizarJoyas}
+            disabled={sincronizando}
+            style={{
+            ...styles.btnPrimario,
+            width: "100%",
+            opacity: sincronizando ? 0.6 : 1,
+            }}
+        >
+            {sincronizando ? "⏳ Sincronizando..." : "↑ Sincronizar joyas al servidor"}
+        </button>
+
+        {msgSync && (
+            <div style={{
+            marginTop: 8,
+            padding: 10,
+            borderRadius: 8,
+            backgroundColor: msgSync.startsWith("✅") ? "#e8f5e9" : "#ffebee",
+            color: msgSync.startsWith("✅") ? "#2e7d32" : "#c62828",
+            fontSize: 13,
+            }}>
+            {msgSync}
+            </div>
+        )}
+        </div>   
     </div>
   );
 }
@@ -452,3 +510,4 @@ const styles: Record<string, React.CSSProperties> = {
     margin: 0,
   },
 };
+

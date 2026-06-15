@@ -78,6 +78,23 @@ async function exportar() {
   }
 }
 
+  const [enviando, setEnviando] = useState(false);
+  const [msgEnvio, setMsgEnvio] = useState<string | null>(null);
+
+async function enviarAlServidor() {
+  setEnviando(true);
+  setMsgEnvio(null);
+  try {
+    const msg = await invoke<string>("sync_toma_a_api", { tomaId });
+    setMsgEnvio(msg);
+  } catch (e) {
+    setMsgEnvio("❌ " + String(e));
+  } finally {
+    setEnviando(false);
+    setTimeout(() => setMsgEnvio(null), 5000);
+  }
+}
+
   return (
     <div style={{ padding: 16, maxWidth: 480, margin: "0 auto" }}>
 
@@ -179,9 +196,26 @@ async function exportar() {
 
       {/* Botones */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 16 }}>
-        <button style={styles.btnEnviar}>
-          ↑ Enviar al sistema web
+        <button
+          onClick={enviarAlServidor}
+          disabled={enviando}
+          style={{ ...styles.btnEnviar, opacity: enviando ? 0.6 : 1 }}
+        >
+          {enviando ? "⏳ Enviando..." : "↑ Enviar al sistema web"}
         </button>
+
+        {msgEnvio && (
+          <div style={{
+            padding: 10,
+            borderRadius: 8,
+            marginTop: 8,
+            backgroundColor: msgEnvio.startsWith("✅") ? "#e8f5e9" : "#ffebee",
+            color: msgEnvio.startsWith("✅") ? "#2e7d32" : "#c62828",
+            fontSize: 13,
+          }}>
+            {msgEnvio}
+          </div>
+        )}
         <button
             onClick={exportar}
             disabled={exportando}

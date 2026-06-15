@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import Login, { Usuario } from "./pages/Login";
 import { invoke } from "@tauri-apps/api/core";
 import Inventario from "./pages/Inventario";
 import Escanear from "./pages/Escanear";
@@ -14,11 +15,37 @@ type Tab = "inventario" | "escanear" | "joyas" | "historial" | "localizar" | "re
 type Pantalla = "main" | "resultados";
 
 export default function App() {
+  const [usuario, setUsuario] = useState<Usuario | null>(null);
+  const [verificandoSesion, setVerificandoSesion] = useState(true);
+
   const [tab, setTab] = useState<Tab>("inventario");
   const [pantalla, setPantalla] = useState<Pantalla>("main");
   const [tomaId, setTomaId] = useState(0);
   const [resultados, setResultados] = useState<ResultadoTag[]>([]);
   const [msgDev, setMsgDev] = useState("");
+  
+  useEffect(() => {
+    verificarSesion();
+  }, []);
+
+  async function verificarSesion() {
+    try {
+      const sesion = await invoke<Usuario | null>("get_sesion");
+      setUsuario(sesion);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setVerificandoSesion(false);
+    }
+  }
+
+  async function handleLogout() {
+    await invoke("logout");
+    setUsuario(null);
+    setTab("inventario");
+    setPantalla("main");
+  }
+
 
   async function cargarPrueba() {
     try {
@@ -34,6 +61,20 @@ export default function App() {
     setTomaId(id);
     setResultados(res);
     setPantalla("resultados");
+  }
+
+    // ===== Verificando sesión =====
+  if (verificandoSesion) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+        <p>⏳ Cargando...</p>
+      </div>
+    );
+  }
+
+    // ===== Sin sesión → Login =====
+  if (!usuario) {
+    return <Login onLogin={setUsuario} />;
   }
 
   // Resultados ocupa pantalla completa sin tab bar
@@ -52,14 +93,19 @@ export default function App() {
     );
   }
 
+    // ===== Tabs según rol =====
+  const esAdmin = usuario.rol === "administrador";
+
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "inventario", label: "Inventario", icon: "📋" },
     { id: "escanear",   label: "Escanear",   icon: "📡" },
     { id: "joyas",      label: "Joyas",      icon: "💎" },
     { id: "historial",  label: "Historial",  icon: "🕐" },
     { id: "localizar",  label: "Localizar",  icon: "🎯" },
-    { id: "resumen",    label: "Resumen",    icon: "📊" },
-    { id: "ajustes",    label: "Ajustes",    icon: "⚙️" },
+    ...(esAdmin ? [
+      { id: "resumen" as Tab, label: "Resumen", icon: "📊" },
+      { id: "ajustes" as Tab, label: "Ajustes", icon: "⚙️" },
+    ] : []),
   ];
 
   return (
@@ -86,6 +132,28 @@ export default function App() {
             cursor: "pointer",
           }}>
           Cargar prueba
+        </button>
+        <div>
+          <p style={{ margin: 0, color: "white", fontSize: 13, fontWeight: "bold" }}>
+            {usuario.nombre}
+          </p>
+          <p style={{ margin: 0, color: "#999", fontSize: 11 }}>
+            {usuario.rol === "administrador" ? "Administrador" : "Operario"}
+          </p>
+        </div>
+        <button
+          onClick={handleLogout}
+          style={{
+            background: "none",
+            border: "1px solid #444",
+            color: "#ccc",
+            borderRadius: 6,
+            padding: "4px 10px",
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          Salir
         </button>
         {msgDev && (
           <span style={{ color: "white", fontSize: 11 }}>{msgDev}</span>
