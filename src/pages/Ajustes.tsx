@@ -204,7 +204,7 @@ async function sincronizarJoyas() {
           value={token}
           onChange={e => setToken(e.target.value)}
           placeholder="Token JWT"
-          type="text"
+          type="password"
           style={styles.input}
         />
 
