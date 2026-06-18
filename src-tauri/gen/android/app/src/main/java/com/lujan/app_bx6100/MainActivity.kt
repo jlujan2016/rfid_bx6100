@@ -203,6 +203,41 @@ override fun dispatchKeyEvent(event: KeyEvent): Boolean {
                 "{\"success\":false,\"error\":\"${e.message}\"}"
             }
         }
+        @JavascriptInterface
+        fun vibrarPatron(tipo: String) {
+            try {
+                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+
+                // Patrones según proximidad
+                val patron = when (tipo) {
+                    "muy_cerca" -> longArrayOf(0, 200, 100, 200) // pulso doble fuerte
+                    "cerca"     -> longArrayOf(0, 100, 200, 100) // pulso suave
+                    "lejos"     -> longArrayOf(0, 50)             // pulso corto
+                    else        -> longArrayOf(0, 50)
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createWaveform(patron, -1))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(patron, -1)
+                }
+            } catch (e: Throwable) {
+                Log.e("RFID", "Error vibrarPatron: ${e.message}")
+            }
+        }
+
+        @JavascriptInterface
+        fun testVibrador(): String {
+            return try {
+                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                val tieneVibrador = vibrator.hasVibrator()
+                Log.d("RFID", "hasVibrator: $tieneVibrador")
+                "{\"hasVibrator\":$tieneVibrador}"
+            } catch (e: Throwable) {
+                "{\"error\":\"${e.message}\"}"
+            }
+        }
 
 
 

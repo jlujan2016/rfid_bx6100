@@ -53,6 +53,7 @@ export default function Localizar() {
   const scanRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const rssiAnteriorRef = useRef<number>(-100);
   const tagsCercaRef = useRef<Map<string, TagRadar>>(new Map());
+  const ultimaVibracionRef = useRef<number>(0);
 
   useEffect(() => {
     const check = setInterval(() => {
@@ -115,15 +116,27 @@ export default function Localizar() {
           if (tag.epc === epcObjetivo || (epcObjetivo === "" && !joyaBuscada)) {
             // Tag objetivo encontrado
             setTagRadar(actualizado);
+  
+  const proximidad = rssiAProximidad(tag.rssi);
 
-            // Vibración según proximidad
-            const proximidad = rssiAProximidad(tag.rssi);
-            if (proximidad > 0.7 && tag.rssi > rssiAnteriorRef.current + 3) {
-              window.AndroidRFID?.vibrar(100);
-            } else if (proximidad > 0.4 && tag.rssi > rssiAnteriorRef.current + 5) {
-              window.AndroidRFID?.vibrar(50);
-            }
-            rssiAnteriorRef.current = tag.rssi;
+  // Vibrar periódicamente según proximidad, no solo al mejorar
+  const ahora = Date.now();
+  const ultimaVibracion = ultimaVibracionRef.current;
+  const intervaloVibracion = proximidad > 0.7 ? 800 : proximidad > 0.4 ? 1500 : 3000;
+
+  if (window.AndroidRFID?.vibrarPatron && ahora - ultimaVibracion > intervaloVibracion) {
+    if (proximidad > 0.7) {
+      window.AndroidRFID.vibrarPatron("muy_cerca");
+    } else if (proximidad > 0.4) {
+      window.AndroidRFID.vibrarPatron("cerca");
+    } else {
+      window.AndroidRFID.vibrarPatron("lejos");
+    }
+    ultimaVibracionRef.current = ahora;
+  }
+
+  rssiAnteriorRef.current = tag.rssi;
+
           } else {
             nuevosOtros.push(actualizado);
           }
@@ -432,19 +445,17 @@ function RadarVisual({ proximidad, color, activo, encontrado }: RadarProps) {
   const centro = size / 2;
   const radioMax = centro - 10;
 
-  // Posición del punto según proximidad
-  // proximidad 0 = borde exterior, 1 = centro
-  const radioActual = radioMax * (1 - proximidad);
-  const angulo = useRef(Math.PI / 4); // ángulo fijo para simplicidad
+  // ← Constante simple, sin useRef
+  const angulo = Math.PI / 4;
 
-  // El punto está en el ángulo diagonal
-  const px = centro + radioActual * Math.cos(angulo.current);
-  const py = centro + radioActual * Math.sin(angulo.current);
+  const radioActual = radioMax * (1 - proximidad);
+  const px = centro + radioActual * Math.cos(angulo);
+  const py = centro + radioActual * Math.sin(angulo);
 
   return (
     <div style={{ position: "relative" }}>
       <svg width={size} height={size}>
-        {/* Círculos del radar */}
+      {/* Círculos del radar */}
         {[1, 0.66, 0.33].map((factor, i) => (
           <circle
             key={i}
@@ -459,23 +470,15 @@ function RadarVisual({ proximidad, color, activo, encontrado }: RadarProps) {
           />
         ))}
 
-        {/* Líneas de referencia */}
+{/* Líneas de referencia */}
         <line x1={centro} y1={10} x2={centro} y2={size - 10}
           stroke="#eee" strokeWidth={1} />
         <line x1={10} y1={centro} x2={size - 10} y2={centro}
           stroke="#eee" strokeWidth={1} />
 
-        {/* Barrido animado si está activo */}
         {activo && (
-          <line
-            x1={centro}
-            y1={centro}
-            x2={centro + radioMax}
-            y2={centro}
-            stroke={color}
-            strokeWidth={2}
-            opacity={0.3}
-          >
+          <line x1={centro} y1={centro} x2={centro + radioMax} y2={centro}
+            stroke={color} strokeWidth={2} opacity={0.3}>
             <animateTransform
               attributeName="transform"
               type="rotate"
@@ -490,7 +493,7 @@ function RadarVisual({ proximidad, color, activo, encontrado }: RadarProps) {
         {/* Punto del tag objetivo */}
         {encontrado && (
           <>
-            {/* Pulso */}
+          {/* Pulso */}
             <circle cx={px} cy={py} r={12} fill={color} opacity={0.2}>
               <animate attributeName="r" values="8;16;8" dur="1s" repeatCount="indefinite" />
               <animate attributeName="opacity" values="0.3;0;0.3" dur="1s" repeatCount="indefinite" />

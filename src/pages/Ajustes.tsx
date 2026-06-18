@@ -32,16 +32,28 @@ export default function Ajustes() {
   const [potencia, setPotencia] = useState(30);
   const [msgPotencia, setMsgPotencia] = useState<string | null>(null);
 
-  useEffect(() => {
-    cargarConfig();
-    cargarZonas();
-    cargarPotencia();
+useEffect(() => {
+  cargarConfig();
+  cargarZonas();
+  cargarPotencia();
 
-    invoke<any>("debug_config").then(info => {
+  invoke<any>("debug_config").then(info => {
     console.log("📂 DB path:", info.db_path);
     console.log("📋 Config:", info.config);
   });
-  }, []);
+  
+invoke<any>("debug_config").then(info => {
+  const apiUrl = info.config?.find((c: any) => c[0] === "api_url")?.[1] ?? "";
+  const apiToken = info.config?.find((c: any) => c[0] === "api_token")?.[1] ?? "";
+
+  if (apiUrl && apiToken) {
+    invoke<string>("debug_token", { url: apiUrl, token: apiToken })
+      .then(r => console.log("🔑 DEBUG:", r))
+      .catch(e => console.error("❌", e));
+  }
+});
+
+}, []);
 
 async function cargarConfig() {
   try {
@@ -204,7 +216,7 @@ async function sincronizarJoyas() {
           value={token}
           onChange={e => setToken(e.target.value)}
           placeholder="Token JWT"
-          type="password"
+          type="text"
           style={styles.input}
         />
 

@@ -367,7 +367,7 @@ fn set_config_api(state: State<DbState>, url: String, token: String) -> Result<(
 #[tauri::command]
 async fn probar_conexion(url: String, token: String) -> Result<String, String> {
     let client = reqwest::Client::new();
-    let endpoint = format!("{}/joyas", url.trim_end_matches('/'));
+    let endpoint = format!("{}/joyas?token={}", url.trim_end_matches('/'), token); 
 
     let resp = client
         .get(&endpoint)
@@ -434,12 +434,18 @@ async fn login(
     usuario: String,
     password: String,
 ) -> Result<UsuarioData, String> {
-    // Obtener URL configurada
+    const URL_DEFAULT: &str = "http://192.168.100.95/Shopping-Cart-Solution-CodeIgniter/api";
+
     let url = {
         let conn = state.0.lock().map_err(|e| e.to_string())?;
-        db::get_config(&conn, "api_url")
-            .map_err(|e| e.to_string())?
-            .ok_or("Configura primero la URL de la API en Ajustes")?
+        match db::get_config(&conn, "api_url").map_err(|e| e.to_string())? {
+            Some(u) if !u.is_empty() => u,
+            _ => {
+                // Guardar la URL default para que quede configurada
+                db::set_config(&conn, "api_url", URL_DEFAULT).map_err(|e| e.to_string())?;
+                URL_DEFAULT.to_string()
+            }
+        }
     };
 
     let endpoint = format!("{}/auth/login", url.trim_end_matches('/'));
@@ -529,7 +535,7 @@ async fn sync_joyas_a_api(
         return Ok("No hay joyas para sincronizar".to_string());
     }
 
-    let endpoint = format!("{}/joyas/sync", url.trim_end_matches('/'));
+    let endpoint = format!("{}/joyas/sync?token={}", url.trim_end_matches('/'), token);
 
     let payload = serde_json::json!({ "joyas": joyas });
 
@@ -577,7 +583,7 @@ async fn sync_toma_a_api(
         (url, token, toma, tags)
     };
 
-    let endpoint = format!("{}/tomas/sync", url.trim_end_matches('/'));
+    let endpoint = format!("{}/tomas/sync?token={}", url.trim_end_matches('/'), token);
 
     let payload = serde_json::json!({
         "numero":             toma.numero,
