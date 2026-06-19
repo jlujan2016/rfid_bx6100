@@ -161,7 +161,8 @@ logout,
 get_sesion,
 sync_joyas_a_api,
 sync_toma_a_api,
-debug_config,
+get_pendientes_sync,
+contar_pendientes_sync,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -622,32 +623,13 @@ async fn sync_toma_a_api(
 }
 
 #[tauri::command]
-fn debug_config(
-    app: tauri::AppHandle,
-    state: State<DbState>,
-) -> Result<serde_json::Value, String> {
+fn get_pendientes_sync(state: State<DbState>) -> Result<Vec<db::SyncItem>, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::get_pendientes(&conn).map_err(|e| e.to_string())
+}
 
-    // Ruta real del archivo
-    let db_path = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("rfid_joyas.db");
-
-    // Leer todo lo que hay en config
-    let mut stmt = conn
-        .prepare("SELECT clave, valor FROM config")
-        .map_err(|e| e.to_string())?;
-
-    let filas: Vec<(String, String)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(serde_json::json!({
-        "db_path": db_path.to_string_lossy(),
-        "config": filas,
-    }))
+#[tauri::command]
+fn contar_pendientes_sync(state: State<DbState>) -> Result<i64, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::contar_pendientes(&conn).map_err(|e| e.to_string())
 }

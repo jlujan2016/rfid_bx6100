@@ -112,8 +112,10 @@ pub fn init(conn: &Connection) -> Result<()> {
             toma_id     INTEGER NOT NULL,
             epc         TEXT NOT NULL,
             rssi        INTEGER,
+            veces_detectado INTEGER NOT NULL DEFAULT 1,
             scanned_at  DATETIME DEFAULT (datetime('now','localtime')),
-            FOREIGN KEY (toma_id) REFERENCES tomas(id)
+            FOREIGN KEY (toma_id) REFERENCES tomas(id),
+            UNIQUE(toma_id, epc)
         );
 
         CREATE TABLE IF NOT EXISTS config (
@@ -127,6 +129,17 @@ pub fn init(conn: &Connection) -> Result<()> {
             bssid       TEXT NOT NULL UNIQUE,
             activo      INTEGER NOT NULL DEFAULT 1,
             creado_at   DATETIME DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_queue (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            tipo            TEXT NOT NULL,              -- 'toma' | 'joya'
+            referencia_id   INTEGER NOT NULL,
+            estado          TEXT NOT NULL DEFAULT 'pendiente',  -- 'pendiente' | 'enviado' | 'error'
+            intentos        INTEGER NOT NULL DEFAULT 0,
+            ultimo_error    TEXT,
+            creado_at       DATETIME DEFAULT (datetime('now','localtime')),
+            enviado_at      DATETIME
         );
     ")?;
     Ok(())
@@ -260,10 +273,22 @@ pub fn crear_toma(conn: &Connection, ubicacion: &str) -> Result<i64> {
 
 pub fn insertar_tag_toma(conn: &Connection, toma_id: i64, epc: &str, rssi: i32) -> Result<i64> {
     conn.execute(
-        "INSERT INTO toma_tags (toma_id, epc, rssi) VALUES (?1, ?2, ?3)",
+        "INSERT INTO toma_tags (toma_id, epc, rssi, veces_detectado)
+         VALUES (?1, ?2, ?3, 1)
+         ON CONFLICT(toma_id, epc) DO UPDATE SET
+            veces_detectado = veces_detectado + 1,
+            rssi = ?3
+         ",
         params![toma_id, epc, rssi],
     )?;
-    Ok(conn.last_insert_rowid())
+
+    let id: i64 = conn.query_row(
+        "SELECT id FROM toma_tags WHERE toma_id = ?1 AND epc = ?2",
+        params![toma_id, epc],
+        |row| row.get(0)
+    )?;
+
+    Ok(id)
 }
 
 pub fn conciliar_toma(conn: &Connection, toma_id: i64) -> Result<Vec<ResultadoTag>> {
@@ -480,4 +505,67 @@ pub fn marcar_toma_enviada(conn: &Connection, id: i64) -> Result<usize> {
         params![id],
     )?;
     Ok(count)
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SyncItem {
+    pub id: i64,
+    pub tipo: String,
+    pub referencia_id: i64,
+    pub estado: String,
+    pub intentos: i64,
+    pub ultimo_error: Option<String>,
+    pub creado_at: String,
+}
+
+pub fn agregar_a_cola(conn: &Connection, tipo: &str, referencia_id: i64) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO sync_queue (tipo, referencia_id) VALUES (?1, ?2)",
+        params![tipo, referencia_id],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn get_pendientes(conn: &Connection) -> Result<Vec<SyncItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, tipo, referencia_id, estado, intentos, ultimo_error, creado_at
+         FROM sync_queue
+         WHERE estado = 'pendiente'
+         ORDER BY creado_at"
+    )?;
+    let items = stmt.query_map([], |row| {
+        Ok(SyncItem {
+            id:            row.get(0)?,
+            tipo:          row.get(1)?,
+            referencia_id: row.get(2)?,
+            estado:        row.get(3)?,
+            intentos:      row.get(4)?,
+            ultimo_error:  row.get(5)?,
+            creado_at:     row.get(6)?,
+        })
+    })?
+    .collect::<Result<Vec<SyncItem>>>()?;
+    Ok(items)
+}
+
+pub fn marcar_enviado(conn: &Connection, id: i64) -> Result<usize> {
+    let count = conn.execute(
+        "UPDATE sync_queue SET estado = 'enviado', enviado_at = datetime('now','localtime') WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(count)
+}
+
+pub fn marcar_error(conn: &Connection, id: i64, error: &str) -> Result<usize> {
+    let count = conn.execute(
+        "UPDATE sync_queue SET estado = 'pendiente', intentos = intentos + 1, ultimo_error = ?1 WHERE id = ?2",
+        params![error, id],
+    )?;
+    Ok(count)
+}
+
+pub fn contar_pendientes(conn: &Connection) -> Result<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM sync_queue WHERE estado = 'pendiente'",
+        [], |row| row.get(0)
+    )
 }

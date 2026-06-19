@@ -34,6 +34,7 @@ export default function Escanear({ onFinalizar }: Props) {
   const tomaIdRef = useRef<number | null>(null);
   const zonaRef = useRef<Zona>("Tienda");
   const estadoRef = useRef<EstadoEscaneo>("idle");
+  const epcsGuardadosRef = useRef<Set<string>>(new Set());
 
   // Verificar hardware
   useEffect(() => {
@@ -78,66 +79,67 @@ export default function Escanear({ onFinalizar }: Props) {
     return joyasCache.current.get(epc) ?? null;
   }
 
-  async function iniciarEscaneo() {
-    if (!rfidReady) return;
-    setError(null);
+async function iniciarEscaneo() {
+  if (!rfidReady) return;
+  setError(null);
 
-    try {
-      // Crear toma en DB
-      const id = await invoke<number>("crear_toma", {
-        ubicacion: zonaSeleccionada,
-      });
-      setTomaId(id);
-      tomaIdRef.current = id;
-      zonaRef.current = zonaSeleccionada;
-      setTags(new Map());
-      setEstado("escaneando");
-      iniciarLoop();
-    } catch (e) {
-      setError("Error al crear toma: " + String(e));
-    }
+  try {
+    // Crear toma en DB
+    const id = await invoke<number>("crear_toma", {
+      ubicacion: zonaSeleccionada,
+    });
+    setTomaId(id);
+    tomaIdRef.current = id;
+    zonaRef.current = zonaSeleccionada;
+    setTags(new Map());
+    epcsGuardadosRef.current = new Set(); // ← reiniciar set
+    setEstado("escaneando");
+    iniciarLoop();
+  } catch (e) {
+    setError("Error al crear toma: " + String(e));
   }
+}
 
-  function iniciarLoop() {
-    scanIntervalRef.current = setInterval(async () => {
-      try {
-        const raw = window.AndroidRFID.scanRFID(200);
-        const data = JSON.parse(raw);
+function iniciarLoop() {
+  scanIntervalRef.current = setInterval(async () => {
+    try {
+      const raw = window.AndroidRFID.scanRFID(200);
+      const data = JSON.parse(raw);
 
-        if (!data.success || data.tags.length === 0) return;
+      if (!data.success || data.tags.length === 0) return;
 
-        for (const tag of data.tags) {
-          const joya = buscarJoyaPorEpc(tag.epc);
+      for (const tag of data.tags) {
+        const joya = buscarJoyaPorEpc(tag.epc);
 
-          // Guardar en DB
-          if (tomaIdRef.current !== null) {
-            await invoke("insertar_tag_toma", {
-              tomaId: tomaIdRef.current,
-              epc: tag.epc,
-              rssi: tag.rssi,
-            });
-          }
-
-          // Actualizar estado local
-          setTags(prev => {
-            const next = new Map(prev);
-            const existing = next.get(tag.epc);
-            next.set(tag.epc, {
-              epc: tag.epc,
-              rssi: tag.rssi,
-              count: existing ? existing.count + 1 : 1,
-              joya,
-              zona: zonaRef.current,
-              ultima_lectura: new Date().toLocaleTimeString(),
-            });
-            return next;
+        // Guardar en DB
+        if (tomaIdRef.current !== null) {
+          await invoke("insertar_tag_toma", {
+            tomaId: tomaIdRef.current,
+            epc: tag.epc,
+            rssi: tag.rssi,
           });
         }
-      } catch (e) {
-        console.error("Error en scan:", e);
+
+        // Actualizar estado local
+        setTags(prev => {
+          const next = new Map(prev);
+          const existing = next.get(tag.epc);
+          next.set(tag.epc, {
+            epc: tag.epc,
+            rssi: tag.rssi,
+            count: existing ? existing.count + 1 : 1,
+            joya,
+            zona: zonaRef.current,
+            ultima_lectura: new Date().toLocaleTimeString(),
+          });
+          return next;
+        });
       }
-    }, 300);
-  }
+    } catch (e) {
+      console.error("Error en scan:", e);
+    }
+  }, 300);
+}
 
   function pausar() {
     if (scanIntervalRef.current) {
