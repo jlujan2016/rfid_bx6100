@@ -481,18 +481,20 @@ pub fn get_toma_por_id(conn: &Connection, id: i64) -> Result<Option<Toma>> {
 pub struct TomaTag {
     pub epc: String,
     pub rssi: i32,
+    pub veces_detectado: i64,
     pub scanned_at: String,
 }
 
 pub fn get_tags_por_toma(conn: &Connection, toma_id: i64) -> Result<Vec<TomaTag>> {
     let mut stmt = conn.prepare(
-        "SELECT epc, rssi, scanned_at FROM toma_tags WHERE toma_id = ?1"
+        "SELECT epc, rssi, veces_detectado, scanned_at FROM toma_tags WHERE toma_id = ?1"
     )?;
     let tags = stmt.query_map(params![toma_id], |row| {
         Ok(TomaTag {
             epc:        row.get(0)?,
             rssi:       row.get(1)?,
-            scanned_at: row.get(2)?,
+            veces_detectado: row.get(2)?,
+            scanned_at: row.get(3)?,
         })
     })?
     .collect::<Result<Vec<TomaTag>>>()?;
