@@ -36,8 +36,9 @@ export default function Escanear({ onFinalizar }: Props) {
   const estadoRef = useRef<EstadoEscaneo>("idle");
   const epcsGuardadosRef = useRef<Set<string>>(new Set());
 
-  const [categoriaFiltro, setCategoriaFiltro] = useState<string>("Todas");
-  const categoriaFiltroRef = useRef<string>("Todas");
+  const [categoriasDisponibles, setCategoriasDisponibles] = useState<string[]>([]);
+  const [categoriasFiltro, setCategoriasFiltro] = useState<Set<string>>(new Set());
+  const categoriasFiltroRef = useRef<Set<string>>(new Set());
 
   const categorias = ["Todas", "Anillo", "Collar", "Aretes", "Pulsera", "Dije"];
 
@@ -55,6 +56,7 @@ export default function Escanear({ onFinalizar }: Props) {
   // Cargar joyas al iniciar para tener caché
   useEffect(() => {
     cargarJoyas();
+    cargarCategorias();
   }, []);
 
   useEffect(() => {
@@ -62,8 +64,8 @@ export default function Escanear({ onFinalizar }: Props) {
   }, [estado]);
 
   useEffect(() => {
-  categoriaFiltroRef.current = categoriaFiltro;
-  }, [categoriaFiltro]);
+    categoriasFiltroRef.current = categoriasFiltro;
+  }, [categoriasFiltro]);
 
   useGatillo(() => {
     if (estadoRef.current === "idle")            iniciarEscaneo();
@@ -84,6 +86,27 @@ export default function Escanear({ onFinalizar }: Props) {
     }
   }
 
+  async function cargarCategorias() {
+    try {
+      const cats = await invoke<string[]>("get_categorias");
+      setCategoriasDisponibles(cats);
+    } catch (e) {
+      console.error("Error cargando categorías:", e);
+    }
+  }
+
+  function toggleCategoria(cat: string) {
+    setCategoriasFiltro(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) {
+        next.delete(cat);
+      } else {
+        next.add(cat);
+      }
+      return next;
+    });
+  }
+
   function buscarJoyaPorEpc(epc: string): Joya | null {
     return joyasCache.current.get(epc) ?? null;
   }
@@ -100,7 +123,7 @@ async function iniciarEscaneo() {
     setTomaId(id);
     tomaIdRef.current = id;
     zonaRef.current = zonaSeleccionada;
-    categoriaFiltroRef.current = categoriaFiltro;  // ← fijar filtro para esta sesión
+    categoriasFiltroRef.current = categoriasFiltro;  // ← fijar filtro para esta sesión
     setTags(new Map());
     epcsGuardadosRef.current = new Set(); // ← reiniciar set
     setEstado("escaneando");
@@ -122,10 +145,10 @@ function iniciarLoop() {
         const joya = buscarJoyaPorEpc(tag.epc);
 
         // Filtro de categoría: ignorar completamente si no coincide
-        const filtroActivo = categoriaFiltroRef.current !== "Todas";
+        const filtroActivo = categoriasFiltroRef.current.size > 0;
         if (filtroActivo) {
           // Si el tag no está en catálogo o es de otra categoría, se ignora
-          if (!joya || joya.categoria !== categoriaFiltroRef.current) {
+          if (!joya || !categoriasFiltroRef.current.has(joya.categoria)) {
             continue;
           }
         }
@@ -255,32 +278,56 @@ function iniciarLoop() {
           </div>
 
           <div style={styles.card}>
-            <p style={{ margin: "0 0 12px", fontWeight: "bold" }}>
-              Filtrar por categoría (opcional)
-            </p>
-            <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
-              {categorias.map(cat => (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <p style={{ margin: 0, fontWeight: "bold" }}>
+                Filtrar por categoría
+              </p>
+              {categoriasFiltro.size > 0 && (
                 <button
-                  key={cat}
-                  onClick={() => setCategoriaFiltro(cat)}
-                  style={{
-                    padding: "8px 14px",
-                    borderRadius: 20,
-                    border: categoriaFiltro === cat ? "none" : "1px solid #ddd",
-                    backgroundColor: categoriaFiltro === cat ? "#6C63FF" : "white",
-                    color: categoriaFiltro === cat ? "white" : "#333",
-                    fontSize: 13,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                  }}
+                  onClick={() => setCategoriasFiltro(new Set())}
+                  style={{ background: "none", border: "none", color: "#6C63FF", fontSize: 12, cursor: "pointer" }}
                 >
-                  {cat}
+                  Limpiar
                 </button>
-              ))}
+              )}
             </div>
-            {categoriaFiltro !== "Todas" && (
+
+            {categoriasDisponibles.length === 0 ? (
+              <p style={{ fontSize: 12, color: "#999", margin: 0 }}>
+                No hay categorías registradas aún
+              </p>
+            ) : (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {categoriasDisponibles.map(cat => {
+                  const activo = categoriasFiltro.has(cat);
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => toggleCategoria(cat)}
+                      style={{
+                        padding: "8px 14px",
+                        borderRadius: 20,
+                        border: activo ? "none" : "1px solid #ddd",
+                        backgroundColor: activo ? "#6C63FF" : "white",
+                        color: activo ? "white" : "#333",
+                        fontSize: 13,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {activo && "✓ "}{cat}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {categoriasFiltro.size === 0 ? (
+              <p style={{ margin: "8px 0 0", fontSize: 12, color: "#999" }}>
+                Sin filtro — se escanearán todas las categorías
+              </p>
+            ) : (
               <p style={{ margin: "8px 0 0", fontSize: 12, color: "#e65100" }}>
-                ⚠️ Solo se contarán tags de la categoría "{categoriaFiltro}"
+                ⚠️ Solo se contarán: {Array.from(categoriasFiltro).join(", ")}
               </p>
             )}
           </div>
@@ -288,7 +335,7 @@ function iniciarLoop() {
       )}
 
       {/* Zona actual durante escaneo */}
-      {estado !== "idle" && categoriaFiltroRef.current !== "Todas" && (
+      {estado !== "idle" && categoriasFiltroRef.current.size > 0 && (
         <div style={{ ...styles.card, backgroundColor: "#fff3e0" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 13, color: "#666" }}>Filtro activo</span>
@@ -297,10 +344,10 @@ function iniciarLoop() {
               color: "#e65100",
               padding: "4px 12px",
               borderRadius: 12,
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: "bold",
             }}>
-              🔍 Solo {categoriaFiltroRef.current}
+              🔍 {Array.from(categoriasFiltroRef.current).join(", ")}
             </span>
           </div>
         </div>

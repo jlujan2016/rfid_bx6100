@@ -571,3 +571,12 @@ pub fn contar_pendientes(conn: &Connection) -> Result<i64> {
         [], |row| row.get(0)
     )
 }
+
+pub fn get_categorias(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT categoria FROM joyas WHERE categoria != '' ORDER BY categoria"
+    )?;
+    let categorias = stmt.query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<String>>>()?;
+    Ok(categorias)
+}
