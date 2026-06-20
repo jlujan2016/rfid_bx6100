@@ -165,6 +165,10 @@ pub fn run() {
             contar_pendientes_sync,
             get_categorias,
             get_zona_por_bssid,
+            get_fotos_joya,
+            agregar_foto_joya,
+            eliminar_foto_joya,
+            marcar_portada_foto,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -646,4 +650,28 @@ fn get_categorias(state: State<DbState>) -> Result<Vec<String>, String> {
 fn get_zona_por_bssid(state: State<DbState>, bssid: String) -> Result<Option<String>, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
     db::get_zona_por_bssid(&conn, &bssid).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_fotos_joya(state: State<DbState>, joya_id: i64) -> Result<Vec<db::JoyaFoto>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::get_fotos_joya(&conn, joya_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn agregar_foto_joya(state: State<DbState>, joya_id: i64, foto: String) -> Result<i64, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::agregar_foto_joya(&conn, joya_id, &foto).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn eliminar_foto_joya(state: State<DbState>, foto_id: i64) -> Result<usize, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::eliminar_foto_joya(&conn, foto_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn marcar_portada_foto(state: State<DbState>, foto_id: i64) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::marcar_portada(&conn, foto_id).map_err(|e| e.to_string())
 }

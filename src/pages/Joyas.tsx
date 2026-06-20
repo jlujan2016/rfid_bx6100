@@ -22,7 +22,8 @@ export default function Joyas() {
   const [error, setError] = useState<string | null>(null);
   const [importando, setImportando] = useState(false);
   const [msgImport, setMsgImport] = useState<string | null>(null);
-
+  const [fotosGaleria, setFotosGaleria] = useState<JoyaFoto[]>([]);
+  const [subiendoFoto, setSubiendoFoto] = useState(false);
   const categorias = ["Todas", "Anillo", "Collar", "Aretes", "Pulsera", "Dije"];
 
   const formVacio: JoyaInput = {
@@ -121,17 +122,87 @@ export default function Joyas() {
         epc: joya.epc,
         foto: joya.foto,
       });
+      cargarFotosGaleria(joya.id);
     } else {
       setJoyaEditando(null);
       setForm(formVacio);
+      setFotosGaleria([]);
     }
     setError(null);
     setVista("form");
   }
 
+  async function cargarFotosGaleria(joyaId: number) {
+    try {
+      const fotos = await invoke<JoyaFoto[]>("get_fotos_joya", { joyaId });
+      setFotosGaleria(fotos);
+    } catch (e) {
+      console.error("Error cargando fotos:", e);
+    }
+  }
+
   function abrirDetalle(joya: Joya) {
     setJoyaDetalle(joya);
+    cargarFotosGaleria(joya.id);
     setVista("detalle");
+  }
+
+  function agregarFotoGaleria(modo: "camara" | "galeria") {
+    if (!joyaEditando) {
+      setError("Guarda la joya primero antes de agregar más fotos");
+      return;
+    }
+
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    if (modo === "camara") input.capture = "environment";
+
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      setSubiendoFoto(true);
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const base64 = reader.result as string;
+          await invoke("agregar_foto_joya", {
+            joyaId: joyaEditando.id,
+            foto: base64,
+          });
+          await cargarFotosGaleria(joyaEditando.id);
+        } catch (err) {
+          setError("Error subiendo foto: " + String(err));
+        } finally {
+          setSubiendoFoto(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    };
+
+    input.click();
+  }
+
+  async function eliminarFotoGaleria(fotoId: number) {
+    if (!joyaEditando) return;
+    try {
+      await invoke("eliminar_foto_joya", { fotoId });
+      await cargarFotosGaleria(joyaEditando.id);
+    } catch (e) {
+      console.error("Error eliminando foto:", e);
+    }
+  }
+
+  async function marcarComoPortada(fotoId: number) {
+    if (!joyaEditando) return;
+    try {
+      await invoke("marcar_portada_foto", { fotoId });
+      await cargarFotosGaleria(joyaEditando.id);
+      await cargarJoyas(); // refrescar lista para que se vea la nueva portada
+    } catch (e) {
+      console.error("Error marcando portada:", e);
+    }
   }
 
   async function guardar() {
@@ -235,6 +306,30 @@ export default function Joyas() {
     input.click();
   }
 
+  async function guardar() {
+    if (!form.nombre.trim()) {
+      setError("El nombre es obligatorio");
+      return;
+    }
+    try {
+      if (joyaEditando) {
+        await invoke("actualizar_joya", { id: joyaEditando.id, input: form });
+        await cargarJoyas();
+        setVista("lista");
+      } else {
+        const nuevoId = await invoke<number>("crear_joya", { input: form });
+        await cargarJoyas();
+        // Mantener en el formulario para que pueda agregar fotos
+        const nuevaJoya = { ...form, id: nuevoId } as Joya;
+        setJoyaEditando(nuevaJoya);
+        setError(null);
+        // No cambia de vista — permite seguir agregando fotos
+      }
+    } catch (e) {
+      setError("Error guardando: " + String(e));
+    }
+  }
+
   const joyasFiltradas = joyas
     .filter(j => filtro === "Todas" || j.categoria === filtro)
     .filter(j =>
@@ -261,11 +356,25 @@ export default function Joyas() {
         </div>
 
         {/* Foto */}
-        <div style={styles.fotoContainer}>
-          {joyaDetalle.foto ? (
-            <img src={joyaDetalle.foto} alt={joyaDetalle.nombre} style={styles.fotoImg} />
+        <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 16, paddingBottom: 4 }}>
+          {fotosGaleria.length > 0 ? (
+            fotosGaleria.map(f => (
+              <img
+                key={f.id}
+                src={f.foto}
+                alt=""
+                style={{
+                  width: 100,
+                  height: 100,
+                  borderRadius: 12,
+                  objectFit: "cover",
+                  border: f.es_portada ? "3px solid #6C63FF" : "1px solid #eee",
+                  flexShrink: 0,
+                }}
+              />
+            ))
           ) : (
-            <div style={styles.fotoPlaceholder}>
+            <div style={{ ...styles.fotoPlaceholder, width: "100%", height: 200 }}>
               <span style={{ fontSize: 40 }}>📷</span>
             </div>
           )}
@@ -348,32 +457,96 @@ export default function Joyas() {
 
         {error && <div style={styles.error}>{error}</div>}
 
-        {/* Foto */}
-        <div style={styles.fotoContainer}>
-          {form.foto ? (
-            <img src={form.foto} alt="preview" style={styles.fotoImg} />
-          ) : (
-            <div style={styles.fotoPlaceholder}>
-              <span style={{ fontSize: 40 }}>📷</span>
-            </div>
-          )}
-        </div>
+        {/* Galería de fotos */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={styles.label}>Fotos</label>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          <button onClick={tomarFoto} style={styles.btnFoto}>
-            📷 Tomar foto
-          </button>
-          <button onClick={elegirDeGaleria} style={styles.btnFoto}>
-            🖼️ Galería
-          </button>
-          {form.foto && (
-            <button
-              onClick={() => setForm(p => ({ ...p, foto: null }))}
-              style={{ ...styles.btnFoto, backgroundColor: "#ffebee", color: "#c62828" }}
-            >
-              🗑
-            </button>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 8 }}>
+            {fotosGaleria.map(f => (
+              <div key={f.id} style={{ position: "relative", flexShrink: 0 }}>
+                <img
+                  src={f.foto}
+                  alt=""
+                  style={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: 10,
+                    objectFit: "cover",
+                    border: f.es_portada ? "3px solid #6C63FF" : "1px solid #eee",
+                  }}
+                />
+                {f.es_portada && (
+                  <span style={{
+                    position: "absolute",
+                    top: 2,
+                    left: 2,
+                    backgroundColor: "#6C63FF",
+                    color: "white",
+                    fontSize: 9,
+                    padding: "1px 6px",
+                    borderRadius: 6,
+                  }}>
+                    Portada
+                  </span>
+                )}
+                <div style={{ display: "flex", gap: 2, marginTop: 4 }}>
+                  {!f.es_portada && (
+                    <button
+                      onClick={() => marcarComoPortada(f.id)}
+                      style={{ ...styles.btnMiniFoto, fontSize: 10 }}
+                      title="Marcar como portada"
+                    >
+                      ⭐
+                    </button>
+                  )}
+                  <button
+                    onClick={() => eliminarFotoGaleria(f.id)}
+                    style={{ ...styles.btnMiniFoto, backgroundColor: "#ffebee", color: "#c62828" }}
+                    title="Eliminar"
+                  >
+                    🗑
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {/* Placeholder agregar */}
+            <div style={{
+              width: 80,
+              height: 80,
+              borderRadius: 10,
+              backgroundColor: "#f5f5f5",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}>
+              {subiendoFoto ? "⏳" : "📷"}
+            </div>
+          </div>
+
+          {!joyaEditando && (
+            <p style={{ fontSize: 11, color: "#999", margin: "0 0 8px" }}>
+              Guarda la joya primero para poder agregar fotos
+            </p>
           )}
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => agregarFotoGaleria("camara")}
+              disabled={!joyaEditando || subiendoFoto}
+              style={{ ...styles.btnFoto, opacity: !joyaEditando ? 0.5 : 1 }}
+            >
+              📷 Tomar foto
+            </button>
+            <button
+              onClick={() => agregarFotoGaleria("galeria")}
+              disabled={!joyaEditando || subiendoFoto}
+              style={{ ...styles.btnFoto, opacity: !joyaEditando ? 0.5 : 1 }}
+            >
+              🖼️ Galería
+            </button>
+          </div>
         </div>
 
         <button
@@ -759,6 +932,15 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: "hidden",
     marginBottom: 12,
     backgroundColor: "#f5f5f5",
+  },
+  btnMiniFoto: {
+    flex: 1,
+    padding: "2px 4px",
+    backgroundColor: "#f5f5f5",
+    border: "none",
+    borderRadius: 4,
+    cursor: "pointer",
+    fontSize: 11,
   },
   fotoImg: {
     width: "100%",

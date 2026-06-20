@@ -141,6 +141,16 @@ pub fn init(conn: &Connection) -> Result<()> {
             creado_at       DATETIME DEFAULT (datetime('now','localtime')),
             enviado_at      DATETIME
         );
+
+        CREATE TABLE IF NOT EXISTS joya_fotos (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            joya_id     INTEGER NOT NULL,
+            foto        TEXT NOT NULL,           -- base64
+            es_portada  INTEGER NOT NULL DEFAULT 0,
+            orden       INTEGER NOT NULL DEFAULT 0,
+            creado_at   DATETIME DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (joya_id) REFERENCES joyas(id) ON DELETE CASCADE
+        );
     ")?;
     Ok(())
 }
@@ -587,4 +597,128 @@ pub fn get_zona_por_bssid(conn: &Connection, bssid: &str) -> Result<Option<Strin
     )?;
     let mut rows = stmt.query_map(params![bssid], |row| row.get::<_, String>(0))?;
     Ok(rows.next().transpose()?)
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct JoyaFoto {
+    pub id: i64,
+    pub joya_id: i64,
+    pub foto: String,
+    pub es_portada: bool,
+    pub orden: i64,
+}
+
+pub fn get_fotos_joya(conn: &Connection, joya_id: i64) -> Result<Vec<JoyaFoto>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, joya_id, foto, es_portada, orden
+         FROM joya_fotos WHERE joya_id = ?1 ORDER BY orden"
+    )?;
+    let fotos = stmt.query_map(params![joya_id], |row| {
+        Ok(JoyaFoto {
+            id:         row.get(0)?,
+            joya_id:    row.get(1)?,
+            foto:       row.get(2)?,
+            es_portada: row.get::<_, i64>(3)? == 1,
+            orden:      row.get(4)?,
+        })
+    })?
+    .collect::<Result<Vec<JoyaFoto>>>()?;
+    Ok(fotos)
+}
+
+pub fn agregar_foto_joya(conn: &Connection, joya_id: i64, foto: &str) -> Result<i64> {
+    // ¿es la primera foto de esta joya? si sí, será portada automáticamente
+    let total: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM joya_fotos WHERE joya_id = ?1",
+        params![joya_id], |row| row.get(0)
+    )?;
+
+    let es_portada = if total == 0 { 1 } else { 0 };
+
+    conn.execute(
+        "INSERT INTO joya_fotos (joya_id, foto, es_portada, orden) VALUES (?1, ?2, ?3, ?4)",
+        params![joya_id, foto, es_portada, total],
+    )?;
+
+    let foto_id = conn.last_insert_rowid();
+
+    // Si es portada, sincronizar con el campo foto de la tabla joyas
+    if es_portada == 1 {
+        conn.execute(
+            "UPDATE joyas SET foto = ?1 WHERE id = ?2",
+            params![foto, joya_id],
+        )?;
+    }
+
+    Ok(foto_id)
+}
+
+pub fn eliminar_foto_joya(conn: &Connection, foto_id: i64) -> Result<usize> {
+    // Obtener datos antes de borrar
+    let (joya_id, era_portada): (i64, bool) = conn.query_row(
+        "SELECT joya_id, es_portada FROM joya_fotos WHERE id = ?1",
+        params![foto_id],
+        |row| Ok((row.get(0)?, row.get::<_, i64>(1)? == 1))
+    )?;
+
+    let count = conn.execute("DELETE FROM joya_fotos WHERE id = ?1", params![foto_id])?;
+
+    // Si era portada, asignar la siguiente foto disponible como nueva portada
+    if era_portada {
+        let siguiente: Option<(i64, String)> = conn.query_row(
+            "SELECT id, foto FROM joya_fotos WHERE joya_id = ?1 ORDER BY orden LIMIT 1",
+            params![joya_id],
+            |row| Ok((row.get(0)?, row.get(1)?))
+        ).ok();
+
+        match siguiente {
+            Some((nuevo_id, nueva_foto)) => {
+                conn.execute(
+                    "UPDATE joya_fotos SET es_portada = 1 WHERE id = ?1",
+                    params![nuevo_id],
+                )?;
+                conn.execute(
+                    "UPDATE joyas SET foto = ?1 WHERE id = ?2",
+                    params![nueva_foto, joya_id],
+                )?;
+            }
+            None => {
+                // No quedan fotos, limpiar el campo foto de joyas
+                conn.execute(
+                    "UPDATE joyas SET foto = NULL WHERE id = ?1",
+                    params![joya_id],
+                )?;
+            }
+        }
+    }
+
+    Ok(count)
+}
+
+pub fn marcar_portada(conn: &Connection, foto_id: i64) -> Result<()> {
+    let (joya_id, foto): (i64, String) = conn.query_row(
+        "SELECT joya_id, foto FROM joya_fotos WHERE id = ?1",
+        params![foto_id],
+        |row| Ok((row.get(0)?, row.get(1)?))
+    )?;
+
+    // Quitar portada de todas las fotos de esta joya
+    conn.execute(
+        "UPDATE joya_fotos SET es_portada = 0 WHERE joya_id = ?1",
+        params![joya_id],
+    )?;
+
+    // Marcar la nueva portada
+    conn.execute(
+        "UPDATE joya_fotos SET es_portada = 1 WHERE id = ?1",
+        params![foto_id],
+    )?;
+
+    // Sincronizar con tabla joyas
+    conn.execute(
+        "UPDATE joyas SET foto = ?1 WHERE id = ?2",
+        params![foto, joya_id],
+    )?;
+
+    Ok(())
 }

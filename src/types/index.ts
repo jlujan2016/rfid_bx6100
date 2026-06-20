@@ -54,3 +54,11 @@ export interface JoyaInput {
   epc: string | null;
   foto: string | null;
 }
+
+interface JoyaFoto {
+  id: number;
+  joya_id: number;
+  foto: string;
+  es_portada: boolean;
+  orden: number;
+}
