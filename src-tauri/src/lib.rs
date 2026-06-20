@@ -169,6 +169,7 @@ pub fn run() {
             agregar_foto_joya,
             eliminar_foto_joya,
             marcar_portada_foto,
+            sync_fotos_joya,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -674,4 +675,69 @@ fn eliminar_foto_joya(state: State<DbState>, foto_id: i64) -> Result<usize, Stri
 fn marcar_portada_foto(state: State<DbState>, foto_id: i64) -> Result<(), String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
     db::marcar_portada(&conn, foto_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sync_fotos_joya(
+    state: State<'_, DbState>,
+    joya_id: i64,
+) -> Result<String, String> {
+    let (url, token, epc, fotos) = {
+        let conn = state.0.lock().map_err(|e| e.to_string())?;
+        let url = db::get_config(&conn, "api_url")
+            .map_err(|e| e.to_string())?
+            .ok_or("URL de API no configurada")?;
+        let token = db::get_config(&conn, "api_token")
+            .map_err(|e| e.to_string())?
+            .ok_or("Token no configurado")?;
+
+        let joya = db::get_joya_por_id(&conn, joya_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Joya no encontrada")?;
+        let epc = joya.epc.ok_or("La joya no tiene EPC asignado, no se puede sincronizar")?;
+
+        let fotos = db::get_fotos_joya(&conn, joya_id)
+            .map_err(|e| e.to_string())?;
+
+        (url, token, epc, fotos)
+    };
+
+    if fotos.is_empty() {
+        return Ok("No hay fotos para sincronizar".to_string());
+    }
+
+    let endpoint = format!("{}/joyas/sync_fotos", url.trim_end_matches('/'));
+
+    let payload = serde_json::json!({
+        "epc": epc,
+        "fotos": fotos,
+    });
+
+    let client = reqwest::Client::new();
+    eprintln!("Tamaño del payload: {} bytes", payload.to_string().len());
+    eprintln!("Cantidad de fotos: {}", fotos.len());
+    let resp = client
+        .post(&endpoint)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Error de conexión: {}", e))?;
+
+    let status = resp.status();
+    let texto_crudo = resp.text().await.map_err(|e| format!("Error leyendo respuesta: {}", e))?;
+
+    eprintln!("Respuesta cruda (primeros 500 chars): {}", &texto_crudo.chars().take(500).collect::<String>());
+    eprintln!("Longitud total de respuesta: {}", texto_crudo.len());
+
+    let body: serde_json::Value = serde_json::from_str(&texto_crudo)
+        .map_err(|e| format!("Respuesta inválida: {} — contenido: {}", e, &texto_crudo.chars().take(200).collect::<String>()))?;
+
+    if status.is_success() {
+        let texto_foto = if fotos.len() == 1 { "foto" } else { "fotos" };
+        Ok(format!("✅ {} {} sincronizada{}", fotos.len(), texto_foto, if fotos.len() == 1 { "" } else { "s" }))
+    } else {
+        Err(body["message"].as_str().unwrap_or("Error desconocido").to_string())
+    }
 }

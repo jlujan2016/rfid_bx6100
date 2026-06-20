@@ -195,14 +195,14 @@ pub fn actualizar_joya(conn: &Connection, id: i64, input: &JoyaInput) -> Result<
         "UPDATE joyas SET
             nombre = ?1, categoria = ?2, metal = ?3,
             peso_g = ?4, precio = ?5, ubicacion = ?6,
-            estado = ?7, epc = ?8, foto = ?9,
+            estado = ?7, epc = ?8,
             sincronizado = 0,
             actualizado_at = datetime('now','localtime')
-         WHERE id = ?10",
+         WHERE id = ?9",
         params![
             input.nombre, input.categoria, input.metal,
             input.peso_g, input.precio, input.ubicacion,
-            input.estado, input.epc, input.foto, id
+            input.estado, input.epc, id
         ],
     )?;
     Ok(count)
@@ -721,4 +721,10 @@ pub fn marcar_portada(conn: &Connection, foto_id: i64) -> Result<()> {
     )?;
 
     Ok(())
+}
+
+pub fn get_joya_por_id(conn: &Connection, id: i64) -> Result<Option<Joya>> {
+    let mut stmt = conn.prepare("SELECT * FROM joyas WHERE id = ?1")?;
+    let mut rows = stmt.query_map(params![id], mapear_joya)?;
+    Ok(rows.next().transpose()?)
 }

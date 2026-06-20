@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Joya, JoyaInput } from "../types";
+import { Joya, JoyaInput, JoyaFoto } from "../types";
 
 declare global {
   interface Window {
@@ -163,22 +163,18 @@ export default function Joyas() {
       if (!file) return;
 
       setSubiendoFoto(true);
-      const reader = new FileReader();
-      reader.onload = async () => {
-        try {
-          const base64 = reader.result as string;
-          await invoke("agregar_foto_joya", {
-            joyaId: joyaEditando.id,
-            foto: base64,
-          });
-          await cargarFotosGaleria(joyaEditando.id);
-        } catch (err) {
-          setError("Error subiendo foto: " + String(err));
-        } finally {
-          setSubiendoFoto(false);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const base64 = await comprimirImagen(file);
+        await invoke("agregar_foto_joya", {
+          joyaId: joyaEditando.id,
+          foto: base64,
+        });
+        await cargarFotosGaleria(joyaEditando.id);
+      } catch (err) {
+        setError("Error subiendo foto: " + String(err));
+      } finally {
+        setSubiendoFoto(false);
+      }
     };
 
     input.click();
@@ -202,24 +198,6 @@ export default function Joyas() {
       await cargarJoyas(); // refrescar lista para que se vea la nueva portada
     } catch (e) {
       console.error("Error marcando portada:", e);
-    }
-  }
-
-  async function guardar() {
-    if (!form.nombre.trim()) {
-      setError("El nombre es obligatorio");
-      return;
-    }
-    try {
-      if (joyaEditando) {
-        await invoke("actualizar_joya", { id: joyaEditando.id, input: form });
-      } else {
-        await invoke("crear_joya", { input: form });
-      }
-      await cargarJoyas();
-      setVista("lista");
-    } catch (e) {
-      setError("Error guardando: " + String(e));
     }
   }
 
@@ -270,16 +248,16 @@ export default function Joyas() {
     input.accept = "image/*";
     input.capture = "environment"; // abre la cámara directamente en Android
 
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
 
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result as string;
+      try {
+        const base64 = await comprimirImagen(file);
         setForm(prev => ({ ...prev, foto: base64 }));
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        setError("Error procesando foto: " + String(err));
+      }
     };
 
     input.click();
@@ -291,16 +269,16 @@ export default function Joyas() {
     input.accept = "image/*";
     // sin "capture" abre la galería
 
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
 
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result as string;
+      try {
+        const base64 = await comprimirImagen(file);
         setForm(prev => ({ ...prev, foto: base64 }));
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        setError("Error procesando foto: " + String(err));
+      }
     };
 
     input.click();
@@ -330,6 +308,47 @@ export default function Joyas() {
     }
   }
 
+  async function sincronizarFotos() {
+    if (!joyaDetalle) return;
+    try {
+      const msg = await invoke<string>("sync_fotos_joya", { joyaId: joyaDetalle.id });
+      alert(msg);
+    } catch (e) {
+      alert("Error: " + String(e));
+    }
+  }
+
+  function comprimirImagen(file: File, maxAncho = 1024, calidad = 0.7): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          let { width, height } = img;
+
+          if (width > maxAncho) {
+            height = (height * maxAncho) / width;
+            width = maxAncho;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          const ctx = canvas.getContext("2d");
+          ctx?.drawImage(img, 0, 0, width, height);
+
+          const base64 = canvas.toDataURL("image/jpeg", calidad);
+          resolve(base64);
+        };
+        img.onerror = reject;
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
   const joyasFiltradas = joyas
     .filter(j => filtro === "Todas" || j.categoria === filtro)
     .filter(j =>
@@ -354,6 +373,9 @@ export default function Joyas() {
             ✏️
           </button>
         </div>
+          <button onClick={sincronizarFotos} style={styles.btnSyncFotos}>
+            ↑ Sincronizar fotos al servidor
+          </button>
 
         {/* Foto */}
         <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 16, paddingBottom: 4 }}>
@@ -997,5 +1019,17 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: "bold",
     cursor: "pointer",
     marginTop: 8,
+  },
+  btnSyncFotos: {
+    width: "100%",
+    padding: 12,
+    backgroundColor: "#e8f5e9",
+    color: "#2e7d32",
+    border: "none",
+    borderRadius: 12,
+    fontSize: 13,
+    fontWeight: "bold",
+    cursor: "pointer",
+    marginBottom: 8,
   },
 };

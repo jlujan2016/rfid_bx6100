@@ -55,7 +55,7 @@ export interface JoyaInput {
   foto: string | null;
 }
 
-interface JoyaFoto {
+export interface JoyaFoto {
   id: number;
   joya_id: number;
   foto: string;
