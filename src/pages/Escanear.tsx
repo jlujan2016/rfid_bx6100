@@ -36,6 +36,11 @@ export default function Escanear({ onFinalizar }: Props) {
   const estadoRef = useRef<EstadoEscaneo>("idle");
   const epcsGuardadosRef = useRef<Set<string>>(new Set());
 
+  const [categoriaFiltro, setCategoriaFiltro] = useState<string>("Todas");
+  const categoriaFiltroRef = useRef<string>("Todas");
+
+  const categorias = ["Todas", "Anillo", "Collar", "Aretes", "Pulsera", "Dije"];
+
   // Verificar hardware
   useEffect(() => {
     const check = setInterval(() => {
@@ -55,6 +60,10 @@ export default function Escanear({ onFinalizar }: Props) {
   useEffect(() => {
     estadoRef.current = estado;
   }, [estado]);
+
+  useEffect(() => {
+  categoriaFiltroRef.current = categoriaFiltro;
+  }, [categoriaFiltro]);
 
   useGatillo(() => {
     if (estadoRef.current === "idle")            iniciarEscaneo();
@@ -91,6 +100,7 @@ async function iniciarEscaneo() {
     setTomaId(id);
     tomaIdRef.current = id;
     zonaRef.current = zonaSeleccionada;
+    categoriaFiltroRef.current = categoriaFiltro;  // ← fijar filtro para esta sesión
     setTags(new Map());
     epcsGuardadosRef.current = new Set(); // ← reiniciar set
     setEstado("escaneando");
@@ -110,6 +120,15 @@ function iniciarLoop() {
 
       for (const tag of data.tags) {
         const joya = buscarJoyaPorEpc(tag.epc);
+
+        // Filtro de categoría: ignorar completamente si no coincide
+        const filtroActivo = categoriaFiltroRef.current !== "Todas";
+        if (filtroActivo) {
+          // Si el tag no está en catálogo o es de otra categoría, se ignora
+          if (!joya || joya.categoria !== categoriaFiltroRef.current) {
+            continue;
+          }
+        }
 
         // Guardar en DB
         if (tomaIdRef.current !== null) {
@@ -213,42 +232,75 @@ function iniciarLoop() {
 
       {/* Selector de zona — solo antes de iniciar */}
       {estado === "idle" && (
-        <div style={styles.card}>
-          <p style={{ margin: "0 0 12px", fontWeight: "bold" }}>
-            Seleccionar zona
-          </p>
-          <div style={{ display: "flex", gap: 8 }}>
-            {(["Tienda", "Almacen"] as Zona[]).map(zona => (
-              <button
-                key={zona}
-                onClick={() => setZonaSeleccionada(zona)}
-                style={{
-                  ...styles.btnZona,
-                  backgroundColor: zonaSeleccionada === zona ? "#6C63FF" : "#f0f0f0",
-                  color: zonaSeleccionada === zona ? "white" : "#333",
-                }}
-              >
-                {zona === "Tienda" ? "🏪" : "🏢"} {zona}
-              </button>
-            ))}
+        <>
+          <div style={styles.card}>
+            <p style={{ margin: "0 0 12px", fontWeight: "bold" }}>
+              Seleccionar zona
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              {(["Tienda", "Almacen"] as Zona[]).map(zona => (
+                <button
+                  key={zona}
+                  onClick={() => setZonaSeleccionada(zona)}
+                  style={{
+                    ...styles.btnZona,
+                    backgroundColor: zonaSeleccionada === zona ? "#6C63FF" : "#f0f0f0",
+                    color: zonaSeleccionada === zona ? "white" : "#333",
+                  }}
+                >
+                  {zona === "Tienda" ? "🏪" : "🏢"} {zona}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+
+          <div style={styles.card}>
+            <p style={{ margin: "0 0 12px", fontWeight: "bold" }}>
+              Filtrar por categoría (opcional)
+            </p>
+            <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+              {categorias.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setCategoriaFiltro(cat)}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 20,
+                    border: categoriaFiltro === cat ? "none" : "1px solid #ddd",
+                    backgroundColor: categoriaFiltro === cat ? "#6C63FF" : "white",
+                    color: categoriaFiltro === cat ? "white" : "#333",
+                    fontSize: 13,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+            {categoriaFiltro !== "Todas" && (
+              <p style={{ margin: "8px 0 0", fontSize: 12, color: "#e65100" }}>
+                ⚠️ Solo se contarán tags de la categoría "{categoriaFiltro}"
+              </p>
+            )}
+          </div>
+        </>
       )}
 
       {/* Zona actual durante escaneo */}
-      {estado !== "idle" && (
-        <div style={styles.card}>
+      {estado !== "idle" && categoriaFiltroRef.current !== "Todas" && (
+        <div style={{ ...styles.card, backgroundColor: "#fff3e0" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: 13, color: "#666" }}>Zona actual</span>
+            <span style={{ fontSize: 13, color: "#666" }}>Filtro activo</span>
             <span style={{
-              backgroundColor: "#e8f5e9",
-              color: "#2e7d32",
+              backgroundColor: "#fff8e1",
+              color: "#e65100",
               padding: "4px 12px",
               borderRadius: 12,
               fontSize: 13,
               fontWeight: "bold",
             }}>
-              🟢 {zonaSeleccionada}
+              🔍 Solo {categoriaFiltroRef.current}
             </span>
           </div>
         </div>
