@@ -580,3 +580,11 @@ pub fn get_categorias(conn: &Connection) -> Result<Vec<String>> {
         .collect::<Result<Vec<String>>>()?;
     Ok(categorias)
 }
+
+pub fn get_zona_por_bssid(conn: &Connection, bssid: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT zona FROM zonas_wifi WHERE bssid = ?1 AND activo = 1"
+    )?;
+    let mut rows = stmt.query_map(params![bssid], |row| row.get::<_, String>(0))?;
+    Ok(rows.next().transpose()?)
+}

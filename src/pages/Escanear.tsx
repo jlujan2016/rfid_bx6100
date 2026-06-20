@@ -42,6 +42,34 @@ export default function Escanear({ onFinalizar }: Props) {
 
   const categorias = ["Todas", "Anillo", "Collar", "Aretes", "Pulsera", "Dije"];
 
+  const [zonaAutoDetectada, setZonaAutoDetectada] = useState(false);
+
+  useEffect(() => {
+    detectarZonaPorWifi();
+  }, []);
+
+  async function detectarZonaPorWifi() {
+    if (!window.AndroidRFID?.getBssidActual) return;
+
+    try {
+      const raw = window.AndroidRFID.getBssidActual();
+      const data = JSON.parse(raw);
+
+      if (!data.success || !data.bssid) return;
+
+      const zona = await invoke<string | null>("get_zona_por_bssid", {
+        bssid: data.bssid,
+      });
+
+      if (zona === "Tienda" || zona === "Almacen") {
+        setZonaSeleccionada(zona as Zona);
+        setZonaAutoDetectada(true);
+      }
+    } catch (e) {
+      console.error("Error detectando zona por WiFi:", e);
+    }
+  }
+
   // Verificar hardware
   useEffect(() => {
     const check = setInterval(() => {
@@ -256,26 +284,42 @@ function iniciarLoop() {
       {/* Selector de zona — solo antes de iniciar */}
       {estado === "idle" && (
         <>
-          <div style={styles.card}>
-            <p style={{ margin: "0 0 12px", fontWeight: "bold" }}>
+        <div style={styles.card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <p style={{ margin: 0, fontWeight: "bold" }}>
               Seleccionar zona
             </p>
-            <div style={{ display: "flex", gap: 8 }}>
-              {(["Tienda", "Almacen"] as Zona[]).map(zona => (
-                <button
-                  key={zona}
-                  onClick={() => setZonaSeleccionada(zona)}
-                  style={{
-                    ...styles.btnZona,
-                    backgroundColor: zonaSeleccionada === zona ? "#6C63FF" : "#f0f0f0",
-                    color: zonaSeleccionada === zona ? "white" : "#333",
-                  }}
-                >
-                  {zona === "Tienda" ? "🏪" : "🏢"} {zona}
-                </button>
-              ))}
-            </div>
+            {zonaAutoDetectada && (
+              <span style={{
+                fontSize: 11,
+                backgroundColor: "#e8f5e9",
+                color: "#2e7d32",
+                padding: "3px 10px",
+                borderRadius: 10,
+              }}>
+                📡 Auto-detectada
+              </span>
+            )}
           </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {(["Tienda", "Almacen"] as Zona[]).map(zona => (
+              <button
+                key={zona}
+                onClick={() => {
+                  setZonaSeleccionada(zona);
+                  setZonaAutoDetectada(false); // si el usuario cambia manualmente, ya no es "auto"
+                }}
+                style={{
+                  ...styles.btnZona,
+                  backgroundColor: zonaSeleccionada === zona ? "#6C63FF" : "#f0f0f0",
+                  color: zonaSeleccionada === zona ? "white" : "#333",
+                }}
+              >
+                {zona === "Tienda" ? "🏪" : "🏢"} {zona}
+              </button>
+            ))}
+          </div>
+        </div>
 
           <div style={styles.card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>

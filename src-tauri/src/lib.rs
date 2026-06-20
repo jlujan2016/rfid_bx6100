@@ -164,6 +164,7 @@ pub fn run() {
             get_pendientes_sync,
             contar_pendientes_sync,
             get_categorias,
+            get_zona_por_bssid,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -639,4 +640,10 @@ fn contar_pendientes_sync(state: State<DbState>) -> Result<i64, String> {
 fn get_categorias(state: State<DbState>) -> Result<Vec<String>, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
     db::get_categorias(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_zona_por_bssid(state: State<DbState>, bssid: String) -> Result<Option<String>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    db::get_zona_por_bssid(&conn, &bssid).map_err(|e| e.to_string())
 }
