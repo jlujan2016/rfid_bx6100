@@ -170,6 +170,7 @@ export default function Joyas() {
           foto: base64,
         });
         await cargarFotosGaleria(joyaEditando.id);
+        await cargarJoyas();
       } catch (err) {
         setError("Error subiendo foto: " + String(err));
       } finally {
@@ -185,6 +186,7 @@ export default function Joyas() {
     try {
       await invoke("eliminar_foto_joya", { fotoId });
       await cargarFotosGaleria(joyaEditando.id);
+      await cargarJoyas();
     } catch (e) {
       console.error("Error eliminando foto:", e);
     }
@@ -284,7 +286,7 @@ export default function Joyas() {
     input.click();
   }
 
-  async function guardar() {
+async function guardar() {
     if (!form.nombre.trim()) {
       setError("El nombre es obligatorio");
       return;
@@ -293,6 +295,14 @@ export default function Joyas() {
       if (joyaEditando) {
         await invoke("actualizar_joya", { id: joyaEditando.id, input: form });
         await cargarJoyas();
+
+        // Sincronizar fotos en segundo plano — si falla, no bloquea el guardado
+        try {
+          await invoke<string>("sync_fotos_joya", { joyaId: joyaEditando.id });
+        } catch (syncErr) {
+          console.warn("No se pudieron sincronizar las fotos, se reintentará después:", syncErr);
+        }
+
         setVista("lista");
       } else {
         const nuevoId = await invoke<number>("crear_joya", { input: form });
