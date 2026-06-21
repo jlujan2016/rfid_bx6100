@@ -24,7 +24,8 @@ export default function Joyas() {
   const [msgImport, setMsgImport] = useState<string | null>(null);
   const [fotosGaleria, setFotosGaleria] = useState<JoyaFoto[]>([]);
   const [subiendoFoto, setSubiendoFoto] = useState(false);
-  const categorias = ["Todas", "Anillo", "Collar", "Aretes", "Pulsera", "Dije"];
+  const [categoriasDisponibles, setCategoriasDisponibles] = useState<string[]>([]);
+  const [categoriaNuevaInput, setCategoriaNuevaInput] = useState(false);
 
   const formVacio: JoyaInput = {
     nombre: "",
@@ -42,8 +43,19 @@ export default function Joyas() {
 
   useEffect(() => {
     cargarJoyas();
+    cargarCategorias();
   }, []);
 
+
+  async function cargarCategorias() {
+    try {
+      const cats = await invoke<string[]>("get_categorias");
+      setCategoriasDisponibles(cats);
+    } catch (e) {
+      console.error("Error cargando categorías:", e);
+    }
+  }
+  
   async function cargarJoyas() {
     try {
       const j = await invoke<Joya[]>("get_joyas", { categoria: null });
@@ -109,6 +121,7 @@ export default function Joyas() {
   }
 
   function abrirForm(joya?: Joya) {
+    setCategoriaNuevaInput(false);
     if (joya) {
       setJoyaEditando(joya);
       setForm({
@@ -125,7 +138,13 @@ export default function Joyas() {
       cargarFotosGaleria(joya.id);
     } else {
       setJoyaEditando(null);
-      setForm(formVacio);
+      if (categoriasDisponibles.length === 0) {
+        // No hay ninguna categoría todavía: forzar modo "nueva categoría"
+        setCategoriaNuevaInput(true);
+        setForm({ ...formVacio, categoria: "" });
+      } else {
+        setForm({ ...formVacio, categoria: categoriasDisponibles[0] });
+      }
       setFotosGaleria([]);
     }
     setError(null);
@@ -295,6 +314,7 @@ async function guardar() {
       if (joyaEditando) {
         await invoke("actualizar_joya", { id: joyaEditando.id, input: form });
         await cargarJoyas();
+        await cargarCategorias(); 
 
         // Sincronizar fotos en segundo plano — si falla, no bloquea el guardado
         try {
@@ -307,6 +327,7 @@ async function guardar() {
       } else {
         const nuevoId = await invoke<number>("crear_joya", { input: form });
         await cargarJoyas();
+        await cargarCategorias();
         // Mantener en el formulario para que pueda agregar fotos
         const nuevaJoya = { ...form, id: nuevoId } as Joya;
         setJoyaEditando(nuevaJoya);
@@ -612,14 +633,33 @@ async function guardar() {
           <div style={{ ...styles.campo, flex: 1 }}>
             <label style={styles.label}>Categoría</label>
             <select
-              value={form.categoria}
-              onChange={e => setForm(p => ({ ...p, categoria: e.target.value }))}
+              value={categoriaNuevaInput ? "__nueva__" : form.categoria}
+              onChange={e => {
+                if (e.target.value === "__nueva__") {
+                  setCategoriaNuevaInput(true);
+                  setForm(p => ({ ...p, categoria: "" }));
+                } else {
+                  setCategoriaNuevaInput(false);
+                  setForm(p => ({ ...p, categoria: e.target.value }));
+                }
+              }}
               style={styles.input}
             >
-              {["Anillo", "Collar", "Aretes", "Pulsera", "Dije"].map(c => (
-                <option key={c}>{c}</option>
+              {categoriasDisponibles.map(c => (
+                <option key={c} value={c}>{c}</option>
               ))}
+              <option value="__nueva__">+ Nueva categoría...</option>
             </select>
+
+            {categoriaNuevaInput && (
+              <input
+                value={form.categoria}
+                onChange={e => setForm(p => ({ ...p, categoria: e.target.value }))}
+                placeholder="Ej: Reloj"
+                style={{ ...styles.input, marginTop: 6 }}
+                autoFocus
+              />
+            )}
           </div>
           <div style={{ ...styles.campo, flex: 1 }}>
             <label style={styles.label}>Metal</label>
@@ -779,7 +819,7 @@ async function guardar() {
         marginBottom: 16,
         paddingBottom: 4,
       }}>
-        {categorias.map(cat => (
+        {["Todas", ...categoriasDisponibles].map(cat => (
           <button
             key={cat}
             onClick={() => setFiltro(cat)}
